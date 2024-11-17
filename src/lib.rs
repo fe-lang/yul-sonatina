@@ -3,7 +3,7 @@ pub mod func;
 use std::collections::HashMap;
 
 use sonatina_ir::{module::FuncRef, Module, I256, U256};
-use yultsur::yul;
+use yultsur::yul::{self, Block as YulBlock};
 
 pub fn compile(src: &str) -> Module {
     todo!()
@@ -16,19 +16,27 @@ pub enum Scope {
     Object(String),
 }
 
-pub struct Ctx {
+struct Ctx {
     funcs: Vec<HashMap<String, FuncRef>>,
     scope: Scope,
 }
 
 impl Ctx {
-    pub fn lookup_func(&self, name: &str) -> Option<FuncRef> {
+    fn lookup_func(&self, name: &str) -> Option<FuncRef> {
         for scope in self.funcs.iter().rev() {
             if let Some(func) = scope.get(name) {
                 return Some(*func);
             }
         }
         None
+    }
+
+    fn enter_block(&mut self, yul_block: &YulBlock) {
+        todo!()
+    }
+
+    fn leave_block(&mut self) {
+        todo!()
     }
 }
 

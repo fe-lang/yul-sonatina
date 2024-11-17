@@ -4,9 +4,12 @@ use sonatina_ir::{
     builder::{FunctionBuilder, ModuleBuilder},
     func_cursor::InstInserter,
     inst::{arith::*, cmp::*, control_flow::*, data::*, evm::*, logic::*},
-    Inst, Type, ValueId,
+    BlockId, Inst, Type, ValueId, Variable,
 };
-use yultsur::yul::{Expression, FunctionCall, FunctionDefinition};
+use yultsur::yul::{
+    Block as YulBlock, Expression, FunctionCall, FunctionDefinition, Identifier,
+    Literal as YulLiteral, Statement,
+};
 
 use crate::{Ctx, Literal};
 
@@ -14,23 +17,223 @@ pub struct FuncTranspiler<'ctx> {
     ctx: &'ctx mut Ctx,
     builder: FunctionBuilder<InstInserter>,
     yul_func: FunctionDefinition,
-    variables: HashMap<String, ValueId>,
+    ret_var: Option<Variable>,
+    variables: HashMap<String, Variable>,
+    // (ContinueDest, BreakDest)
+    loop_stack: Vec<(BlockId, BlockId)>,
 }
 
 impl<'ctx> FuncTranspiler<'ctx> {
     pub fn build(mut self) -> ModuleBuilder {
+        // TODO: Declare return variables.
         todo!()
+    }
+
+    /// Returns `true` if the statement is the terminator.
+    pub fn stmt(&mut self, yul_stmt: &Statement) {
+        let isb = self.builder.ctx().inst_set;
+
+        match yul_stmt {
+            Statement::Block(block) => self.block(block, None),
+
+            Statement::FunctionDefinition(func_def) => {
+                todo!()
+            }
+
+            Statement::VariableDeclaration(yul_decl) => {
+                let yul_vars = &yul_decl.variables;
+                for yul_var in yul_vars {
+                    let var = self.builder.declare_var(Type::I256);
+                    self.variables.insert(yul_var.name.clone(), var);
+                }
+
+                let Some(expr) = &yul_decl.value else {
+                    return;
+                };
+                self.assign(yul_vars, expr);
+            }
+
+            Statement::Assignment(assign) => self.assign(&assign.variables, &assign.value),
+
+            Statement::Expression(expr) => {
+                self.expr(expr);
+                let last_inst = self.builder.last_inst().unwrap();
+                if self.builder.is_terminator(last_inst) {
+                    self.builder.seal_block();
+                }
+            }
+
+            Statement::If(if_) => {
+                let then_bb = self.builder.append_block();
+                let merge_bb = self.builder.append_block();
+
+                let cond = self.expr(&if_.condition).unwrap();
+                let br = Br::new_unchecked(isb, cond, then_bb, merge_bb);
+                self.builder.insert_inst_no_result(br);
+
+                // Enter then block.
+                self.builder.switch_to_block(then_bb);
+                self.block(&if_.body, Some(then_bb));
+                self.builder.switch_to_block(merge_bb);
+            }
+
+            Statement::Switch(switch) => {
+                let scrutinee = self.expr(&switch.expression).unwrap();
+                let current_bb = self.builder.current_block().unwrap();
+
+                let labeled: Vec<(ValueId, BlockId, &YulBlock)> = switch
+                    .cases
+                    .iter()
+                    .flat_map(|case| {
+                        let yul_lit = case.literal.as_ref()?;
+                        let lit_value = self.lit(yul_lit);
+                        let bb = self.builder.append_block();
+                        Some((lit_value, bb, &case.body))
+                    })
+                    .collect();
+
+                let default = switch.cases.iter().find_map(|case| {
+                    if case.literal.is_some() {
+                        return None;
+                    }
+                    let bb = self.builder.append_block();
+                    Some((bb, &case.body))
+                });
+                let merge_bb = self.builder.append_block();
+
+                let mut table = Vec::with_capacity(labeled.len());
+                for (value, bb, yul_block) in labeled {
+                    self.builder.switch_to_block(bb);
+                    self.block(yul_block, Some(merge_bb));
+                    table.push((value, bb));
+                }
+
+                let br_inst = if let Some((bb, yul_block)) = default {
+                    self.builder.switch_to_block(bb);
+                    self.block(yul_block, Some(merge_bb));
+                    BrTable::new_unchecked(isb, scrutinee, Some(bb), table)
+                } else {
+                    BrTable::new_unchecked(isb, scrutinee, None, table)
+                };
+
+                self.builder.switch_to_block(current_bb);
+                self.builder.insert_inst_no_result(br_inst);
+
+                self.builder.switch_to_block(merge_bb);
+            }
+
+            Statement::ForLoop(for_) => {
+                let lp_header = self.builder.append_block();
+                let lp_body = self.builder.append_block();
+                let lp_post = self.builder.append_block();
+                let lp_exit = self.builder.make_block();
+                // todo!(). Scoping rule is weird.
+                self.block(&for_.pre, Some(lp_header));
+
+                self.builder.switch_to_block(lp_header);
+                let cond = self.expr(&for_.condition).unwrap();
+                let br = Br::new_unchecked(isb, cond, lp_body, lp_exit);
+                self.builder.insert_inst_no_result(br);
+
+                self.loop_stack.push((lp_post, lp_exit));
+                self.builder.switch_to_block(lp_body);
+                self.block(&for_.body, Some(lp_post));
+                self.loop_stack.pop();
+
+                self.builder.switch_to_block(lp_post);
+                self.block(&for_.post, Some(lp_header));
+
+                self.builder.switch_to_block(lp_exit);
+            }
+
+            Statement::Break => {
+                let break_dest = self.loop_stack.last().unwrap().1;
+                let jump = Jump::new_unchecked(isb, break_dest);
+                self.builder.insert_inst_no_result(jump);
+                self.builder.seal_block();
+            }
+
+            Statement::Continue => {
+                let break_dest = self.loop_stack.last().unwrap().0;
+                let jump = Jump::new_unchecked(isb, break_dest);
+                self.builder.insert_inst_no_result(jump);
+                self.builder.seal_block();
+            }
+
+            Statement::Leave => self.insert_return(),
+        }
+    }
+
+    fn block(&mut self, yul_block: &YulBlock, fallback_to: Option<BlockId>) {
+        self.ctx.enter_block(yul_block);
+
+        let current_bb = self.builder.current_block().unwrap();
+        for yul_stmt in &yul_block.statements {
+            self.stmt(yul_stmt);
+            if self.builder.is_sealed(current_bb) {
+                self.ctx.leave_block();
+                return;
+            }
+        }
+
+        if !self.builder.is_sealed(current_bb) {
+            self.builder.switch_to_block(current_bb);
+            match fallback_to {
+                Some(bb) => {
+                    let isb = self.builder.ctx().inst_set;
+                    let jump = Jump::new_unchecked(isb, bb);
+                    self.builder.insert_inst_no_result(jump);
+                    self.builder.seal_block();
+                }
+                None => {
+                    self.insert_return();
+                }
+            }
+        }
+
+        self.ctx.leave_block();
+    }
+
+    fn insert_return(&mut self) {
+        let isb = self.builder.ctx().inst_set;
+
+        let ret_inst = if let Some(ret_var) = self.ret_var {
+            let arg = self.builder.use_var(ret_var);
+            Return::new_unchecked(isb, Some(arg))
+        } else {
+            Return::new_unchecked(isb, None)
+        };
+
+        self.builder.insert_inst_no_result(ret_inst);
+        self.builder.seal_block();
+    }
+
+    pub fn assign(&mut self, yul_vars: &[Identifier], expr: &Expression) {
+        let value = self.expr(expr).unwrap();
+
+        if yul_vars.len() == 1 {
+            let var = self.variables[&yul_vars[0].name];
+            self.builder.def_var(var, value);
+        } else {
+            // Use gep and mload, then def_var for each variables.
+            todo!()
+        }
     }
 
     pub fn expr(&mut self, yul_expr: &Expression) -> Option<ValueId> {
         match yul_expr {
-            Expression::Literal(lit) => {
-                let lit = Literal::parse(&lit).as_i256().unwrap();
-                Some(self.builder.make_imm_value(lit))
+            Expression::Literal(lit) => Some(self.lit(lit)),
+            Expression::Identifier(ident) => {
+                let var = self.variables[&ident.name];
+                Some(self.builder.use_var(var))
             }
-            Expression::Identifier(ident) => Some(self.variables[&ident.name]),
             Expression::FunctionCall(call) => self.func_call(call),
         }
+    }
+
+    fn lit(&mut self, yul_lit: &YulLiteral) -> ValueId {
+        let lit = Literal::parse(yul_lit).as_i256().unwrap();
+        self.builder.make_imm_value(lit)
     }
 
     pub fn func_call(&mut self, yul_func_call: &FunctionCall) -> Option<ValueId> {
@@ -233,7 +436,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
             "coinbase" => (Box::new(EvmCoinBase::new_unchecked(isb, args[0])), true),
             "timestamp" => (Box::new(EvmTimestamp::new_unchecked(isb)), true),
             "number" => (Box::new(EvmNumber::new_unchecked(isb)), true),
-            "difficulty" => panic!("difficulty is no longer supported"),
+            "difficulty" => panic!("`difficulty` is no longer supported"),
             "prevrandao" => (Box::new(EvmPrevRandao::new_unchecked(isb)), true),
             "gaslimit" => (Box::new(EvmGasLimit::new_unchecked(isb)), true),
 
@@ -242,7 +445,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let sig = self.builder.module_builder.sig(callee);
                 (
                     Box::new(Call::new_unchecked(isb, callee, args.into())),
-                    sig.ret_ty().is_integral(),
+                    !sig.ret_ty().is_unit(),
                 )
             }
         };
