@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use sonatina_ir::{
     builder::{FunctionBuilder, ModuleBuilder},
     func_cursor::InstInserter,
-    inst::{arith::*, cmp::*, data::*, evm::*, logic::*},
+    inst::{arith::*, cmp::*, control_flow::*, data::*, evm::*, logic::*},
     Inst, Type, ValueId,
 };
 use yultsur::yul::{Expression, FunctionCall, FunctionDefinition};
@@ -65,7 +65,6 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 true,
             ),
             "exp" => (Box::new(EvmExp::new_unchecked(isb, args[0], args[1])), true),
-
             "not" => (Box::new(Not::new_unchecked(isb, args[0])), true),
             "lt" => (Box::new(Lt::new_unchecked(isb, args[0], args[1])), true),
             "gt" => (Box::new(Gt::new_unchecked(isb, args[0], args[1])), true),
@@ -90,7 +89,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 Box::new(EvmMulMod::new_unchecked(isb, args[0], args[1], args[2])),
                 true,
             ),
-            "signextend" => todo!(),
+            "signextend" => todo!("Add EvmSignExtend?"),
             "keccak256" => (
                 Box::new(EvmKeccak256::new_unchecked(isb, args[0], args[1])),
                 true,
@@ -238,8 +237,13 @@ impl<'ctx> FuncTranspiler<'ctx> {
             "prevrandao" => (Box::new(EvmPrevRandao::new_unchecked(isb)), true),
             "gaslimit" => (Box::new(EvmGasLimit::new_unchecked(isb)), true),
 
-            _ => {
-                todo!()
+            f => {
+                let callee = self.ctx.lookup_func(f).unwrap();
+                let sig = self.builder.module_builder.sig(callee);
+                (
+                    Box::new(Call::new_unchecked(isb, callee, args.into())),
+                    sig.ret_ty().is_integral(),
+                )
             }
         };
 
