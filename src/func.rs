@@ -4,7 +4,7 @@ use sonatina_ir::{
     builder::{FunctionBuilder, ModuleBuilder},
     func_cursor::InstInserter,
     inst::{arith::*, cmp::*, control_flow::*, data::*, evm::*, logic::*},
-    BlockId, Inst, Type, ValueId, Variable,
+    BlockId, Inst, Type, ValueId, Variable, I256,
 };
 use yultsur::yul::{
     Block as YulBlock, Expression, FunctionCall, FunctionDefinition, Identifier,
@@ -15,45 +15,68 @@ use crate::{Ctx, Literal};
 
 pub struct FuncTranspiler<'ctx> {
     ctx: &'ctx mut Ctx,
+    func_ctx: FuncCtx,
     builder: FunctionBuilder<InstInserter>,
-    yul_func: FunctionDefinition,
-    ret_var: Option<Variable>,
-    variables: HashMap<String, Variable>,
-    // (ContinueDest, BreakDest)
-    loop_stack: Vec<(BlockId, BlockId)>,
+    ret_vars: Vec<String>,
 }
 
 impl<'ctx> FuncTranspiler<'ctx> {
-    pub fn build(mut self) -> ModuleBuilder {
-        // TODO: Declare return variables.
-        todo!()
+    pub fn new(ctx: &'ctx mut Ctx, builder: FunctionBuilder<InstInserter>) -> Self {
+        Self {
+            ctx,
+            func_ctx: FuncCtx::new(),
+            builder,
+            ret_vars: Vec::new(),
+        }
+    }
+    pub fn build(mut self, yul_func: &FunctionDefinition) -> ModuleBuilder {
+        for arg in &yul_func.parameters {
+            self.func_ctx.declare_var(&mut self.builder, &arg.name);
+        }
+
+        for ret in &yul_func.returns {
+            self.ret_vars.push(ret.name.clone());
+            self.func_ctx.declare_var(&mut self.builder, &ret.name);
+        }
+
+        let entry_bb = self.builder.append_block();
+        self.builder.switch_to_block(entry_bb);
+        self.block(&yul_func.body, true, None);
+
+        self.builder.finish()
     }
 
     /// Returns `true` if the statement is the terminator.
     pub fn stmt(&mut self, yul_stmt: &Statement) {
-        let isb = self.builder.ctx().inst_set;
+        let inst_set = self.builder.inst_set();
 
         match yul_stmt {
-            Statement::Block(block) => self.block(block, None),
+            Statement::Block(block) => self.block(block, true, None),
 
-            Statement::FunctionDefinition(func_def) => {
-                todo!()
+            Statement::FunctionDefinition(_) => {
+                // We can just ignore this.
+                // Function definition is handled by the context.
+                return;
             }
 
             Statement::VariableDeclaration(yul_decl) => {
                 let yul_vars = &yul_decl.variables;
                 for yul_var in yul_vars {
-                    let var = self.builder.declare_var(Type::I256);
-                    self.variables.insert(yul_var.name.clone(), var);
+                    self.func_ctx.declare_var(&mut self.builder, &yul_var.name);
                 }
 
                 let Some(expr) = &yul_decl.value else {
                     return;
                 };
-                self.assign(yul_vars, expr);
+                let value = self.expr(expr).unwrap();
+                self.func_ctx.def_var(&mut self.builder, yul_vars, value);
             }
 
-            Statement::Assignment(assign) => self.assign(&assign.variables, &assign.value),
+            Statement::Assignment(assign) => {
+                let value = self.expr(&assign.value).unwrap();
+                self.func_ctx
+                    .def_var(&mut self.builder, &assign.variables, value);
+            }
 
             Statement::Expression(expr) => {
                 self.expr(expr);
@@ -68,12 +91,14 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let merge_bb = self.builder.append_block();
 
                 let cond = self.expr(&if_.condition).unwrap();
-                let br = Br::new_unchecked(isb, cond, then_bb, merge_bb);
+                let br = Br::new_unchecked(inst_set, cond, then_bb, merge_bb);
                 self.builder.insert_inst_no_result(br);
 
                 // Enter then block.
                 self.builder.switch_to_block(then_bb);
-                self.block(&if_.body, Some(then_bb));
+                self.block(&if_.body, true, Some(then_bb));
+
+                // Swithc to merge block.
                 self.builder.switch_to_block(merge_bb);
             }
 
@@ -104,16 +129,16 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let mut table = Vec::with_capacity(labeled.len());
                 for (value, bb, yul_block) in labeled {
                     self.builder.switch_to_block(bb);
-                    self.block(yul_block, Some(merge_bb));
+                    self.block(yul_block, true, Some(merge_bb));
                     table.push((value, bb));
                 }
 
                 let br_inst = if let Some((bb, yul_block)) = default {
                     self.builder.switch_to_block(bb);
-                    self.block(yul_block, Some(merge_bb));
-                    BrTable::new_unchecked(isb, scrutinee, Some(bb), table)
+                    self.block(yul_block, true, Some(merge_bb));
+                    BrTable::new_unchecked(inst_set, scrutinee, Some(bb), table)
                 } else {
-                    BrTable::new_unchecked(isb, scrutinee, None, table)
+                    BrTable::new_unchecked(inst_set, scrutinee, None, table)
                 };
 
                 self.builder.switch_to_block(current_bb);
@@ -126,36 +151,47 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let lp_header = self.builder.append_block();
                 let lp_body = self.builder.append_block();
                 let lp_post = self.builder.append_block();
-                let lp_exit = self.builder.make_block();
-                // todo!(). Scoping rule is weird.
-                self.block(&for_.pre, Some(lp_header));
+                let lp_exit = self.builder.append_block();
 
+                // Lower pre block.
+                // Yul's scoping rule about `for` loop is weird.
+                // See https://docs.soliditylang.org/en/latest/yul.html#scoping-rules
+                self.enter_scope(&for_.pre);
+                self.block(&for_.pre, false, Some(lp_header));
+
+                // Lower loop header.
                 self.builder.switch_to_block(lp_header);
                 let cond = self.expr(&for_.condition).unwrap();
-                let br = Br::new_unchecked(isb, cond, lp_body, lp_exit);
+                let br = Br::new_unchecked(inst_set, cond, lp_body, lp_exit);
                 self.builder.insert_inst_no_result(br);
+                self.builder.seal_block();
 
-                self.loop_stack.push((lp_post, lp_exit));
+                // Lower loop body.
+                self.func_ctx.loop_stack.push((lp_post, lp_exit));
                 self.builder.switch_to_block(lp_body);
-                self.block(&for_.body, Some(lp_post));
-                self.loop_stack.pop();
+                self.block(&for_.body, true, Some(lp_post));
+                self.func_ctx.loop_stack.pop();
 
+                // Lower loop post block.
                 self.builder.switch_to_block(lp_post);
-                self.block(&for_.post, Some(lp_header));
+                self.block(&for_.post, true, Some(lp_header));
+
+                // Leave loop scope.
+                self.leave_scope();
 
                 self.builder.switch_to_block(lp_exit);
             }
 
             Statement::Break => {
-                let break_dest = self.loop_stack.last().unwrap().1;
-                let jump = Jump::new_unchecked(isb, break_dest);
+                let break_dest = self.func_ctx.loop_stack.last().unwrap().1;
+                let jump = Jump::new_unchecked(inst_set, break_dest);
                 self.builder.insert_inst_no_result(jump);
                 self.builder.seal_block();
             }
 
             Statement::Continue => {
-                let break_dest = self.loop_stack.last().unwrap().0;
-                let jump = Jump::new_unchecked(isb, break_dest);
+                let break_dest = self.func_ctx.loop_stack.last().unwrap().0;
+                let jump = Jump::new_unchecked(inst_set, break_dest);
                 self.builder.insert_inst_no_result(jump);
                 self.builder.seal_block();
             }
@@ -164,8 +200,20 @@ impl<'ctx> FuncTranspiler<'ctx> {
         }
     }
 
-    fn block(&mut self, yul_block: &YulBlock, fallback_to: Option<BlockId>) {
+    fn enter_scope(&mut self, yul_block: &YulBlock) {
         self.ctx.enter_block(yul_block);
+        self.func_ctx.variables.push(HashMap::default());
+    }
+
+    fn leave_scope(&mut self) {
+        self.func_ctx.variables.pop().unwrap();
+        self.ctx.leave_block();
+    }
+
+    fn block(&mut self, yul_block: &YulBlock, enter_scope: bool, fallback_to: Option<BlockId>) {
+        if enter_scope {
+            self.enter_scope(yul_block);
+        }
 
         let current_bb = self.builder.current_block().unwrap();
         for yul_stmt in &yul_block.statements {
@@ -180,51 +228,56 @@ impl<'ctx> FuncTranspiler<'ctx> {
             self.builder.switch_to_block(current_bb);
             match fallback_to {
                 Some(bb) => {
-                    let isb = self.builder.ctx().inst_set;
-                    let jump = Jump::new_unchecked(isb, bb);
+                    let inst_set = self.builder.inst_set();
+                    let jump = Jump::new_unchecked(inst_set, bb);
                     self.builder.insert_inst_no_result(jump);
-                    self.builder.seal_block();
                 }
                 None => {
                     self.insert_return();
                 }
             }
+            self.builder.seal_block();
         }
 
-        self.ctx.leave_block();
+        if enter_scope {
+            self.leave_scope();
+        }
     }
 
     fn insert_return(&mut self) {
-        let isb = self.builder.ctx().inst_set;
+        let inst_set = self.builder.inst_set();
 
-        let ret_inst = if let Some(ret_var) = self.ret_var {
-            let arg = self.builder.use_var(ret_var);
-            Return::new_unchecked(isb, Some(arg))
-        } else {
-            Return::new_unchecked(isb, None)
+        let ret_val = match self.ret_vars.len() {
+            0 => None,
+            1 => {
+                let var = self.func_ctx.lookup_var(&self.ret_vars[0]);
+                Some(self.builder.use_var(var))
+            }
+            _ => {
+                let ret_ty = self.builder.func_sig().ret_ty();
+                let mut ret_val = self.builder.make_undef_value(ret_ty);
+                for (i, yul_var) in self.ret_vars.iter().enumerate() {
+                    let var = self.func_ctx.lookup_var(&yul_var);
+                    let elem = self.builder.use_var(var);
+                    let idx = self.builder.make_imm_value(I256::from_usize(i));
+                    let insert_value = InsertValue::new_unchecked(inst_set, ret_val, idx, elem);
+                    ret_val = self.builder.insert_inst(insert_value, ret_ty);
+                }
+
+                Some(ret_val)
+            }
         };
 
+        let ret_inst = Return::new_unchecked(inst_set, ret_val);
         self.builder.insert_inst_no_result(ret_inst);
         self.builder.seal_block();
-    }
-
-    pub fn assign(&mut self, yul_vars: &[Identifier], expr: &Expression) {
-        let value = self.expr(expr).unwrap();
-
-        if yul_vars.len() == 1 {
-            let var = self.variables[&yul_vars[0].name];
-            self.builder.def_var(var, value);
-        } else {
-            // Use gep and mload, then def_var for each variables.
-            todo!()
-        }
     }
 
     pub fn expr(&mut self, yul_expr: &Expression) -> Option<ValueId> {
         match yul_expr {
             Expression::Literal(lit) => Some(self.lit(lit)),
             Expression::Identifier(ident) => {
-                let var = self.variables[&ident.name];
+                let var = self.func_ctx.lookup_var(&ident.name);
                 Some(self.builder.use_var(var))
             }
             Expression::FunctionCall(call) => self.func_call(call),
@@ -243,208 +296,278 @@ impl<'ctx> FuncTranspiler<'ctx> {
             .map(|expr| self.expr(expr).unwrap())
             .collect();
 
-        let isb = self.builder.ctx().inst_set;
+        let inst_set = self.builder.ctx().inst_set;
 
         let (inst, has_ret): (Box<dyn Inst>, _) = match yul_func_call.function.name.as_str() {
-            "stop" => (Box::new(EvmStop::new_unchecked(isb)), false),
+            "stop" => (Box::new(EvmStop::new_unchecked(inst_set)), false),
 
-            "add" => (Box::new(Add::new_unchecked(isb, args[0], args[1])), true),
-            "sub" => (Box::new(Sub::new_unchecked(isb, args[0], args[1])), true),
-            "mul" => (Box::new(Mul::new_unchecked(isb, args[0], args[1])), true),
+            "add" => (
+                Box::new(Add::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "sub" => (
+                Box::new(Sub::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "mul" => (
+                Box::new(Mul::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
             "div" => (
-                Box::new(EvmUdiv::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmUdiv::new_unchecked(inst_set, args[0], args[1])),
                 true,
             ),
             "sdiv" => (
-                Box::new(EvmSdiv::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmSdiv::new_unchecked(inst_set, args[0], args[1])),
                 true,
             ),
             "mod" => (
-                Box::new(EvmUmod::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmUmod::new_unchecked(inst_set, args[0], args[1])),
                 true,
             ),
             "smod" => (
-                Box::new(EvmSmod::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmSmod::new_unchecked(inst_set, args[0], args[1])),
                 true,
             ),
-            "exp" => (Box::new(EvmExp::new_unchecked(isb, args[0], args[1])), true),
-            "not" => (Box::new(Not::new_unchecked(isb, args[0])), true),
-            "lt" => (Box::new(Lt::new_unchecked(isb, args[0], args[1])), true),
-            "gt" => (Box::new(Gt::new_unchecked(isb, args[0], args[1])), true),
-            "slt" => (Box::new(Slt::new_unchecked(isb, args[0], args[1])), true),
-            "sgt" => (Box::new(Sgt::new_unchecked(isb, args[0], args[1])), true),
-            "eq" => (Box::new(Eq::new_unchecked(isb, args[0], args[1])), true),
-            "iszero" => (Box::new(IsZero::new_unchecked(isb, args[0])), true),
-            "and" => (Box::new(And::new_unchecked(isb, args[0], args[1])), true),
-            "or" => (Box::new(Or::new_unchecked(isb, args[0], args[1])), true),
+            "exp" => (
+                Box::new(EvmExp::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "not" => (Box::new(Not::new_unchecked(inst_set, args[0])), true),
+            "lt" => (
+                Box::new(Lt::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "gt" => (
+                Box::new(Gt::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "slt" => (
+                Box::new(Slt::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "sgt" => (
+                Box::new(Sgt::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "eq" => (
+                Box::new(Eq::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "iszero" => (Box::new(IsZero::new_unchecked(inst_set, args[0])), true),
+            "and" => (
+                Box::new(And::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "or" => (
+                Box::new(Or::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
             "byte" => (
-                Box::new(EvmByte::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmByte::new_unchecked(inst_set, args[0], args[1])),
                 true,
             ),
-            "shl" => (Box::new(Shl::new_unchecked(isb, args[0], args[1])), true),
-            "shr" => (Box::new(Shr::new_unchecked(isb, args[0], args[1])), true),
-            "sar" => (Box::new(Sar::new_unchecked(isb, args[0], args[1])), true),
+            "shl" => (
+                Box::new(Shl::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "shr" => (
+                Box::new(Shr::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
+            "sar" => (
+                Box::new(Sar::new_unchecked(inst_set, args[0], args[1])),
+                true,
+            ),
             "addmod" => (
-                Box::new(EvmAddMod::new_unchecked(isb, args[0], args[1], args[2])),
+                Box::new(EvmAddMod::new_unchecked(
+                    inst_set, args[0], args[1], args[2],
+                )),
                 true,
             ),
             "mulmod" => (
-                Box::new(EvmMulMod::new_unchecked(isb, args[0], args[1], args[2])),
+                Box::new(EvmMulMod::new_unchecked(
+                    inst_set, args[0], args[1], args[2],
+                )),
                 true,
             ),
             "signextend" => todo!("Add EvmSignExtend?"),
             "keccak256" => (
-                Box::new(EvmKeccak256::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmKeccak256::new_unchecked(inst_set, args[0], args[1])),
                 true,
             ),
             "pop" => return None,
             "mload" => (
-                Box::new(Mload::new_unchecked(isb, args[0], Type::I256)),
+                Box::new(Mload::new_unchecked(inst_set, args[0], Type::I256)),
                 true,
             ),
             "mstore" => (
-                Box::new(Mstore::new_unchecked(isb, args[0], args[1], Type::I256)),
+                Box::new(Mstore::new_unchecked(
+                    inst_set,
+                    args[0],
+                    args[1],
+                    Type::I256,
+                )),
                 false,
             ),
             "mstore8" => (
-                Box::new(EvmMstore8::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmMstore8::new_unchecked(inst_set, args[0], args[1])),
                 false,
             ),
-            "sload" => (Box::new(EvmSload::new_unchecked(isb, args[0])), true),
+            "sload" => (Box::new(EvmSload::new_unchecked(inst_set, args[0])), true),
             "sstore" => (
-                Box::new(EvmSstore::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmSstore::new_unchecked(inst_set, args[0], args[1])),
                 false,
             ),
-            "msize" => (Box::new(EvmMsize::new_unchecked(isb)), true),
-            "gas" => (Box::new(EvmGas::new_unchecked(isb)), true),
-            "address" => (Box::new(EvmGas::new_unchecked(isb)), true),
-            "balance" => (Box::new(EvmBalance::new_unchecked(isb, args[0])), true),
-            "selfbalance" => (Box::new(EvmSelfBalance::new_unchecked(isb)), true),
-            "caller" => (Box::new(EvmCaller::new_unchecked(isb)), true),
-            "callvalue" => (Box::new(EvmCallValue::new_unchecked(isb)), true),
-            "calldataload" => (Box::new(EvmCallDataLoad::new_unchecked(isb, args[0])), true),
-            "calldatasize" => (Box::new(EvmCallDataSize::new_unchecked(isb)), true),
+            "msize" => (Box::new(EvmMsize::new_unchecked(inst_set)), true),
+            "gas" => (Box::new(EvmGas::new_unchecked(inst_set)), true),
+            "address" => (Box::new(EvmGas::new_unchecked(inst_set)), true),
+            "balance" => (Box::new(EvmBalance::new_unchecked(inst_set, args[0])), true),
+            "selfbalance" => (Box::new(EvmSelfBalance::new_unchecked(inst_set)), true),
+            "caller" => (Box::new(EvmCaller::new_unchecked(inst_set)), true),
+            "callvalue" => (Box::new(EvmCallValue::new_unchecked(inst_set)), true),
+            "calldataload" => (
+                Box::new(EvmCallDataLoad::new_unchecked(inst_set, args[0])),
+                true,
+            ),
+            "calldatasize" => (Box::new(EvmCallDataSize::new_unchecked(inst_set)), true),
             "calldatacopy" => (
                 Box::new(EvmCallDataCopy::new_unchecked(
-                    isb, args[0], args[1], args[2],
+                    inst_set, args[0], args[1], args[2],
                 )),
                 false,
             ),
-            "codesize" => (Box::new(EvmCodeSize::new_unchecked(isb)), true),
+            "codesize" => (Box::new(EvmCodeSize::new_unchecked(inst_set)), true),
             "codecopy" => (
-                Box::new(EvmCodeCopy::new_unchecked(isb, args[0], args[1], args[2])),
+                Box::new(EvmCodeCopy::new_unchecked(
+                    inst_set, args[0], args[1], args[2],
+                )),
                 false,
             ),
-            "extcodesize" => (Box::new(EvmExtCodeSize::new_unchecked(isb, args[0])), true),
+            "extcodesize" => (
+                Box::new(EvmExtCodeSize::new_unchecked(inst_set, args[0])),
+                true,
+            ),
             "extcodecopy" => (
                 Box::new(EvmExtCodeCopy::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3],
+                    inst_set, args[0], args[1], args[2], args[3],
                 )),
                 false,
             ),
-            "returndatasize" => (Box::new(EvmReturnDataSize::new_unchecked(isb)), true),
+            "returndatasize" => (Box::new(EvmReturnDataSize::new_unchecked(inst_set)), true),
             "returndatacopy" => (
                 Box::new(EvmReturnDataCopy::new_unchecked(
-                    isb, args[0], args[1], args[2],
+                    inst_set, args[0], args[1], args[2],
                 )),
                 false,
             ),
             "mcopy" => (
-                Box::new(EvmMcopy::new_unchecked(isb, args[0], args[1], args[2])),
+                Box::new(EvmMcopy::new_unchecked(inst_set, args[0], args[1], args[2])),
                 false,
             ),
-            "extcodehash" => (Box::new(EvmExtCodeHash::new_unchecked(isb, args[0])), true),
+            "extcodehash" => (
+                Box::new(EvmExtCodeHash::new_unchecked(inst_set, args[0])),
+                true,
+            ),
             "create" => (
-                Box::new(EvmCreate::new_unchecked(isb, args[0], args[1], args[2])),
+                Box::new(EvmCreate::new_unchecked(
+                    inst_set, args[0], args[1], args[2],
+                )),
                 true,
             ),
             "create2" => (
                 Box::new(EvmCreate2::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3],
+                    inst_set, args[0], args[1], args[2], args[3],
                 )),
                 true,
             ),
             "call" => (
                 Box::new(EvmCall::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+                    inst_set, args[0], args[1], args[2], args[3], args[4], args[5], args[6],
                 )),
                 true,
             ),
             "callcode" => (
                 Box::new(EvmCallCode::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+                    inst_set, args[0], args[1], args[2], args[3], args[4], args[5], args[6],
                 )),
                 true,
             ),
             "delegatecall" => (
                 Box::new(EvmDelegateCall::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3], args[4], args[5],
+                    inst_set, args[0], args[1], args[2], args[3], args[4], args[5],
                 )),
                 true,
             ),
             "staticcall" => (
                 Box::new(EvmStaticCall::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3], args[4], args[5],
+                    inst_set, args[0], args[1], args[2], args[3], args[4], args[5],
                 )),
                 true,
             ),
             "return" => (
-                Box::new(EvmReturn::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmReturn::new_unchecked(inst_set, args[0], args[1])),
                 false,
             ),
             "revert" => (
-                Box::new(EvmRevert::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmRevert::new_unchecked(inst_set, args[0], args[1])),
                 false,
             ),
             "selfdestruct" => (
-                Box::new(EvmSelfDestruct::new_unchecked(isb, args[0])),
+                Box::new(EvmSelfDestruct::new_unchecked(inst_set, args[0])),
                 false,
             ),
-            "invalid" => (Box::new(EvmInvalid::new_unchecked(isb)), false),
+            "invalid" => (Box::new(EvmInvalid::new_unchecked(inst_set)), false),
             "log0" => (
-                Box::new(EvmLog0::new_unchecked(isb, args[0], args[1])),
+                Box::new(EvmLog0::new_unchecked(inst_set, args[0], args[1])),
                 false,
             ),
             "log1" => (
-                Box::new(EvmLog1::new_unchecked(isb, args[0], args[1], args[2])),
+                Box::new(EvmLog1::new_unchecked(inst_set, args[0], args[1], args[2])),
                 false,
             ),
             "log2" => (
                 Box::new(EvmLog2::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3],
+                    inst_set, args[0], args[1], args[2], args[3],
                 )),
                 false,
             ),
             "log3" => (
                 Box::new(EvmLog3::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3], args[4],
+                    inst_set, args[0], args[1], args[2], args[3], args[4],
                 )),
                 false,
             ),
             "log4" => (
                 Box::new(EvmLog4::new_unchecked(
-                    isb, args[0], args[1], args[2], args[3], args[4], args[5],
+                    inst_set, args[0], args[1], args[2], args[3], args[4], args[5],
                 )),
                 false,
             ),
-            "chainid" => (Box::new(EvmChainId::new_unchecked(isb)), true),
-            "basefee" => (Box::new(EvmBaseFee::new_unchecked(isb)), true),
-            "blobbasefee" => (Box::new(EvmBlobBaseFee::new_unchecked(isb)), true),
-            "origin" => (Box::new(EvmOrigin::new_unchecked(isb)), true),
-            "gasprice" => (Box::new(EvmGasPrice::new_unchecked(isb)), true),
-            "blobhash" => (Box::new(EvmBlockHash::new_unchecked(isb, args[0])), true),
-            "coinbase" => (Box::new(EvmCoinBase::new_unchecked(isb, args[0])), true),
-            "timestamp" => (Box::new(EvmTimestamp::new_unchecked(isb)), true),
-            "number" => (Box::new(EvmNumber::new_unchecked(isb)), true),
+            "chainid" => (Box::new(EvmChainId::new_unchecked(inst_set)), true),
+            "basefee" => (Box::new(EvmBaseFee::new_unchecked(inst_set)), true),
+            "blobbasefee" => (Box::new(EvmBlobBaseFee::new_unchecked(inst_set)), true),
+            "origin" => (Box::new(EvmOrigin::new_unchecked(inst_set)), true),
+            "gasprice" => (Box::new(EvmGasPrice::new_unchecked(inst_set)), true),
+            "blobhash" => (
+                Box::new(EvmBlockHash::new_unchecked(inst_set, args[0])),
+                true,
+            ),
+            "coinbase" => (
+                Box::new(EvmCoinBase::new_unchecked(inst_set, args[0])),
+                true,
+            ),
+            "timestamp" => (Box::new(EvmTimestamp::new_unchecked(inst_set)), true),
+            "number" => (Box::new(EvmNumber::new_unchecked(inst_set)), true),
             "difficulty" => panic!("`difficulty` is no longer supported"),
-            "prevrandao" => (Box::new(EvmPrevRandao::new_unchecked(isb)), true),
-            "gaslimit" => (Box::new(EvmGasLimit::new_unchecked(isb)), true),
+            "prevrandao" => (Box::new(EvmPrevRandao::new_unchecked(inst_set)), true),
+            "gaslimit" => (Box::new(EvmGasLimit::new_unchecked(inst_set)), true),
 
             f => {
                 let callee = self.ctx.lookup_func(f).unwrap();
                 let sig = self.builder.module_builder.sig(callee);
                 (
-                    Box::new(Call::new_unchecked(isb, callee, args.into())),
+                    Box::new(Call::new_unchecked(inst_set, callee, args.into())),
                     !sig.ret_ty().is_unit(),
                 )
             }
@@ -456,5 +579,61 @@ impl<'ctx> FuncTranspiler<'ctx> {
             self.builder.insert_inst_no_result_dyn(inst);
             None
         }
+    }
+}
+
+struct FuncCtx {
+    variables: Vec<HashMap<String, Variable>>,
+    // (ContinueDest, BreakDest)
+    loop_stack: Vec<(BlockId, BlockId)>,
+}
+
+impl FuncCtx {
+    fn new() -> Self {
+        Self {
+            variables: vec![HashMap::default()],
+            loop_stack: Vec::new(),
+        }
+    }
+
+    fn declare_var(&mut self, builder: &mut FunctionBuilder<InstInserter>, name: &str) -> Variable {
+        let var = builder.declare_var(Type::I256);
+        self.variables
+            .last_mut()
+            .unwrap()
+            .insert(name.to_string(), var);
+        var
+    }
+
+    fn def_var(
+        &mut self,
+        builder: &mut FunctionBuilder<InstInserter>,
+        yul_vars: &[Identifier],
+        value: ValueId,
+    ) {
+        let inst_set = builder.inst_set();
+
+        if yul_vars.len() == 1 {
+            let var = self.lookup_var(&yul_vars[0].name);
+            builder.def_var(var, value);
+        } else {
+            for (i, yul_var) in yul_vars.iter().enumerate() {
+                let idx = builder.make_imm_value(I256::from_usize(i));
+                let extract = ExtractValue::new_unchecked(inst_set, value, idx);
+                let elem_value = builder.insert_inst(extract, Type::I256);
+                let var = self.lookup_var(&yul_var.name);
+                builder.def_var(var, elem_value);
+            }
+        }
+    }
+
+    fn lookup_var(&self, name: &str) -> Variable {
+        for vars in self.variables.iter().rev() {
+            if let Some(var) = vars.get(name) {
+                return *var;
+            }
+        }
+
+        panic!("variable `{name}` is undefined");
     }
 }

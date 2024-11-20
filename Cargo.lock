@@ -30,6 +30,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a81dae078cea95a014a339291cec439d2f232ebe854a9d672b796c6afafa9b7"
 
 [[package]]
+name = "dir-test"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c44bdf9319ad5223afb7eb15a7110452b0adf0373ea6756561b2c708eef0dd1"
+dependencies = [
+ "dir-test-macros",
+]
+
+[[package]]
+name = "dir-test-macros"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "644f96047137dfaa7a09e34d4623f9e52a1926ecc25ba32ad2ba3fc422536b25"
+dependencies = [
+ "glob",
+ "proc-macro2",
+ "quote 1.0.37",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "dot2"
 version = "1.0.0"
 source = "git+https://github.com/sanpii/dot2.rs.git#fcd0f682b44e20b6eab96eade4ccfe6c1d119b97"
@@ -48,6 +69,12 @@ checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
 dependencies = [
  "static_assertions",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
 name = "hashbrown"
@@ -246,6 +273,17 @@ dependencies = [
 
 [[package]]
 name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote 1.0.37",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
 version = "2.0.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
@@ -312,6 +350,7 @@ checksum = "8c1f860d7d29cf02cb2f3f359fd35991af3d30bac52c57d265a3c461074cb4dc"
 name = "yul-sonatina"
 version = "0.1.0"
 dependencies = [
+ "dir-test",
  "sonatina-ir",
  "yultsur",
 ]
