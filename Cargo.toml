@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 yultsur = { git = "https://github.com/leonardoalt/yultsur", branch = "main" }
 sonatina-ir = { path = "../sonatina/crates/ir" }
+sonatina-triple = { path = "../sonatina/crates/triple" }
+cranelift-entity = "0.112"
 
 [dev-dependencies]
 dir-test = "0.3.0"

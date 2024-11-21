@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sonatina_ir::{
-    builder::{FunctionBuilder, ModuleBuilder},
+    builder::FunctionBuilder,
     func_cursor::InstInserter,
     inst::{arith::*, cmp::*, control_flow::*, data::*, evm::*, logic::*},
     BlockId, Inst, Type, ValueId, Variable, I256,
@@ -29,7 +29,8 @@ impl<'ctx> FuncTranspiler<'ctx> {
             ret_vars: Vec::new(),
         }
     }
-    pub fn build(mut self, yul_func: &FunctionDefinition) -> ModuleBuilder {
+
+    pub fn build(mut self, yul_func: &FunctionDefinition) {
         for arg in &yul_func.parameters {
             self.func_ctx.declare_var(&mut self.builder, &arg.name);
         }
@@ -43,19 +44,19 @@ impl<'ctx> FuncTranspiler<'ctx> {
         self.builder.switch_to_block(entry_bb);
         self.block(&yul_func.body, true, None);
 
-        self.builder.finish()
+        self.builder.finish();
     }
 
     /// Returns `true` if the statement is the terminator.
-    pub fn stmt(&mut self, yul_stmt: &Statement) {
+    fn stmt(&mut self, yul_stmt: &Statement) {
         let inst_set = self.builder.inst_set();
 
         match yul_stmt {
             Statement::Block(block) => self.block(block, true, None),
 
             Statement::FunctionDefinition(_) => {
-                // We can just ignore this.
-                // Function definition is handled by the context.
+                // We can just ignore function definitions.
+                // Function definitions are handled by the context.
                 return;
             }
 
@@ -273,7 +274,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
         self.builder.seal_block();
     }
 
-    pub fn expr(&mut self, yul_expr: &Expression) -> Option<ValueId> {
+    fn expr(&mut self, yul_expr: &Expression) -> Option<ValueId> {
         match yul_expr {
             Expression::Literal(lit) => Some(self.lit(lit)),
             Expression::Identifier(ident) => {
@@ -289,7 +290,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
         self.builder.make_imm_value(lit)
     }
 
-    pub fn func_call(&mut self, yul_func_call: &FunctionCall) -> Option<ValueId> {
+    fn func_call(&mut self, yul_func_call: &FunctionCall) -> Option<ValueId> {
         let args: Vec<_> = yul_func_call
             .arguments
             .iter()
@@ -565,10 +566,10 @@ impl<'ctx> FuncTranspiler<'ctx> {
 
             f => {
                 let callee = self.ctx.lookup_func(f).unwrap();
-                let sig = self.builder.module_builder.sig(callee);
+                let ret_ty = self.builder.module_builder.sig(callee, |sig| sig.ret_ty());
                 (
                     Box::new(Call::new_unchecked(inst_set, callee, args.into())),
-                    !sig.ret_ty().is_unit(),
+                    !ret_ty.is_unit(),
                 )
             }
         };
