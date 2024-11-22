@@ -42,7 +42,19 @@ impl<'ctx> FuncTranspiler<'ctx> {
 
         let entry_bb = self.builder.append_block();
         self.builder.switch_to_block(entry_bb);
+
+        for (i, yul_var) in yul_func.parameters.iter().enumerate() {
+            let yul_var = self.func_ctx.lookup_var(&yul_var.name);
+            let arg_val = self.builder.args()[i];
+            self.builder.def_var(yul_var, arg_val);
+        }
+
         self.block(&yul_func.body, true, None);
+        let current_bb = self.builder.current_block().unwrap();
+        if !self.builder.is_sealed(current_bb) {
+            self.insert_return();
+            self.builder.seal_block();
+        }
 
         self.builder.finish();
     }
@@ -97,16 +109,16 @@ impl<'ctx> FuncTranspiler<'ctx> {
 
                 // Enter then block.
                 self.builder.switch_to_block(then_bb);
-                self.block(&if_.body, true, Some(then_bb));
+                self.block(&if_.body, true, Some(merge_bb));
 
-                // Swithc to merge block.
+                // Switch to merge block.
                 self.builder.switch_to_block(merge_bb);
             }
 
             Statement::Switch(switch) => {
                 let scrutinee = self.expr(&switch.expression).unwrap();
-                let current_bb = self.builder.current_block().unwrap();
 
+                // Collect cases.
                 let labeled: Vec<(ValueId, BlockId, &YulBlock)> = switch
                     .cases
                     .iter()
@@ -117,7 +129,6 @@ impl<'ctx> FuncTranspiler<'ctx> {
                         Some((lit_value, bb, &case.body))
                     })
                     .collect();
-
                 let default = switch.cases.iter().find_map(|case| {
                     if case.literal.is_some() {
                         return None;
@@ -125,25 +136,28 @@ impl<'ctx> FuncTranspiler<'ctx> {
                     let bb = self.builder.append_block();
                     Some((bb, &case.body))
                 });
+
+                // Make and append `br_table` inst.
                 let merge_bb = self.builder.append_block();
 
-                let mut table = Vec::with_capacity(labeled.len());
-                for (value, bb, yul_block) in labeled {
-                    self.builder.switch_to_block(bb);
-                    self.block(yul_block, true, Some(merge_bb));
-                    table.push((value, bb));
-                }
-
-                let br_inst = if let Some((bb, yul_block)) = default {
-                    self.builder.switch_to_block(bb);
-                    self.block(yul_block, true, Some(merge_bb));
-                    BrTable::new_unchecked(inst_set, scrutinee, Some(bb), table)
+                let table = labeled.iter().map(|(value, bb, _)| (*value, *bb)).collect();
+                let br_inst = if let Some((default, _)) = default {
+                    BrTable::new_unchecked(inst_set, scrutinee, Some(default), table)
                 } else {
-                    BrTable::new_unchecked(inst_set, scrutinee, None, table)
+                    BrTable::new_unchecked(inst_set, scrutinee, Some(merge_bb), table)
                 };
-
-                self.builder.switch_to_block(current_bb);
                 self.builder.insert_inst_no_result(br_inst);
+                self.builder.seal_block();
+
+                // Transpile cases.
+                for (_, bb, yul_block) in labeled {
+                    self.builder.switch_to_block(bb);
+                    self.block(yul_block, true, Some(merge_bb));
+                }
+                if let Some((bb, yul_block)) = default {
+                    self.builder.switch_to_block(bb);
+                    self.block(yul_block, true, Some(merge_bb));
+                }
 
                 self.builder.switch_to_block(merge_bb);
             }
@@ -165,7 +179,6 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let cond = self.expr(&for_.condition).unwrap();
                 let br = Br::new_unchecked(inst_set, cond, lp_body, lp_exit);
                 self.builder.insert_inst_no_result(br);
-                self.builder.seal_block();
 
                 // Lower loop body.
                 self.func_ctx.loop_stack.push((lp_post, lp_exit));
@@ -178,6 +191,8 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 self.block(&for_.post, true, Some(lp_header));
 
                 // Leave loop scope.
+                self.builder.switch_to_block(lp_header);
+                self.builder.seal_block();
                 self.leave_scope();
 
                 self.builder.switch_to_block(lp_exit);
@@ -216,15 +231,16 @@ impl<'ctx> FuncTranspiler<'ctx> {
             self.enter_scope(yul_block);
         }
 
-        let current_bb = self.builder.current_block().unwrap();
         for yul_stmt in &yul_block.statements {
             self.stmt(yul_stmt);
+            let current_bb = self.builder.current_block().unwrap();
             if self.builder.is_sealed(current_bb) {
                 self.ctx.leave_block();
                 return;
             }
         }
 
+        let current_bb = self.builder.current_block().unwrap();
         if !self.builder.is_sealed(current_bb) {
             self.builder.switch_to_block(current_bb);
             match fallback_to {
@@ -237,6 +253,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
                     self.insert_return();
                 }
             }
+
             self.builder.seal_block();
         }
 

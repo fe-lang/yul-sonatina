@@ -18,7 +18,7 @@ use yultsur::{
 const TRIPLE: TargetTriple = TargetTriple::new(
     Architecture::Evm,
     Vendor::Ethereum,
-    OperatingSystem::Evm(EvmVersion::London),
+    OperatingSystem::Evm(EvmVersion::Cancun),
 );
 
 pub fn compile(src: &str) -> Result<Module, String> {
@@ -151,7 +151,7 @@ impl Ctx {
         self.funcs.push(funcs_in_scope);
         self.block_number += 1;
 
-        // Transpile all yul functions into sonatina functions.
+        // Transpile yul functions in this block.
         for (func_ref, yul_func) in func_defs {
             let fb = self.mb.func_builder(func_ref);
             FuncTranspiler::new(self, fb).build(yul_func);
