@@ -69,7 +69,6 @@ impl<'ctx> FuncTranspiler<'ctx> {
             Statement::FunctionDefinition(_) => {
                 // We can just ignore function definitions.
                 // Function definitions are handled by the context.
-                return;
             }
 
             Statement::VariableDeclaration(yul_decl) => {
@@ -275,7 +274,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let ret_ty = self.builder.func_sig().ret_ty();
                 let mut ret_val = self.builder.make_undef_value(ret_ty);
                 for (i, yul_var) in self.ret_vars.iter().enumerate() {
-                    let var = self.func_ctx.lookup_var(&yul_var);
+                    let var = self.func_ctx.lookup_var(yul_var);
                     let elem = self.builder.use_var(var);
                     let idx = self.builder.make_imm_value(I256::from_usize(i));
                     let insert_value = InsertValue::new_unchecked(inst_set, ret_val, idx, elem);

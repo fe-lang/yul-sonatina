@@ -196,6 +196,12 @@ impl Ctx {
     }
 }
 
+impl Default for Ctx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Literal {
     Number(I256),
@@ -208,7 +214,7 @@ impl Literal {
             lit if lit.starts_with("0x") => U256::from_str_radix(&lit[2..], 16).unwrap(),
 
             lit if lit.chars().next().unwrap().is_numeric() => {
-                U256::from_str_radix(&lit, 10).unwrap()
+                U256::from_str_radix(lit, 10).unwrap()
             }
 
             "true" => U256::one(),
@@ -218,7 +224,7 @@ impl Literal {
             lit => {
                 assert!(lit.starts_with("\""));
                 let last = lit.len();
-                return Self::String((&lit[1..last - 1]).to_string());
+                return Self::String((lit[1..last - 1]).to_string());
             }
         };
 
