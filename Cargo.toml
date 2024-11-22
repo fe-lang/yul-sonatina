@@ -11,3 +11,4 @@ cranelift-entity = "0.112"
 
 [dev-dependencies]
 dir-test = "0.3.0"
+insta = { version = "1.41" }
