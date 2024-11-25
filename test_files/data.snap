@@ -1,0 +1,6 @@
+---
+source: tests/transpile.rs
+input_file: test_files/data.yul
+---
+target = evm-ethereum-cancun
+global private const i256 %Contract1.Table2 = 16675

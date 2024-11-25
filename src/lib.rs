@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use func::FuncTranspiler;
 use sonatina_ir::{
     builder::ModuleBuilder,
+    global_variable::GvInitializer,
     isa::evm::Evm,
     module::{FuncRef, ModuleCtx},
-    Linkage, Module, Signature, Type, I256, U256,
+    GlobalVariable, GlobalVariableData, Immediate, Linkage, Module, Signature, Type, I256, U256,
 };
 use sonatina_triple::{Architecture, EvmVersion, OperatingSystem, TargetTriple, Vendor};
 use yultsur::{
-    yul::{self, Block as YulBlock, FunctionDefinition, InnerRoot, Statement},
+    yul::{self, Block as YulBlock, Data, FunctionDefinition, InnerRoot, Object, Statement},
     yul_parser::parse_root,
 };
 
@@ -26,8 +27,8 @@ pub fn compile(src: &str) -> Result<Module, String> {
     let mut ctx = Ctx::new();
 
     match &root.inner {
-        InnerRoot::Object(_) => {
-            todo!()
+        InnerRoot::Object(obj) => {
+            ctx.compile_object(obj);
         }
         InnerRoot::Block(yul_block) => ctx.enter_block(yul_block),
     };
@@ -60,25 +61,25 @@ impl Scope {
         }
     }
 
-    fn make_func_name(&self, func_name: &str) -> String {
-        let prefix = self.func_prefix();
+    fn make_prefixed_name(&self, name: &str) -> String {
+        let prefix = self.prefix();
 
         if prefix.is_empty() {
-            func_name.to_string()
+            name.to_string()
         } else {
-            format!("{prefix}::{func_name}")
+            format!("{prefix}.{name}")
         }
     }
 
-    fn func_prefix(&self) -> String {
+    fn prefix(&self) -> String {
         match self {
             Self::Nested(scopes) => {
                 let mut prefix = String::new();
                 for s in scopes {
                     if !prefix.is_empty() {
-                        prefix.push_str("::");
+                        prefix.push_str(".");
                     }
-                    prefix.push_str(&s.func_prefix());
+                    prefix.push_str(&s.prefix());
                 }
                 prefix
             }
@@ -92,10 +93,18 @@ impl Scope {
             Self::Root => String::new(),
         }
     }
+
+    fn object(obj: &Object) -> Self {
+        let name = &obj.name;
+        // We need to strip the double quotation.
+        let name = &name[1..name.len() - 1];
+        Self::Object(name.to_string())
+    }
 }
 
 pub struct Ctx {
     funcs: Vec<HashMap<String, FuncRef>>,
+    object_items: Vec<HashMap<String, ObjectItem>>,
     scope: Scope,
     block_number: usize,
     mb: ModuleBuilder,
@@ -108,6 +117,7 @@ impl Ctx {
         let mb = ModuleBuilder::new(module_ctx);
         Self {
             funcs: Vec::new(),
+            object_items: Vec::new(),
             scope: Scope::Root,
             block_number: 0,
             mb,
@@ -126,6 +136,27 @@ impl Ctx {
             }
         }
         None
+    }
+
+    fn compile_object(&mut self, obj: &Object) {
+        self.scope.push(Scope::object(obj));
+        self.object_items.push(HashMap::new());
+
+        // Declare all data in this obejct as a global variable.
+        for data in &obj.data {
+            let gv = self.declare_global_var(data);
+            self.object_items
+                .last_mut()
+                .unwrap()
+                .insert(data.name.clone(), gv.into());
+        }
+
+        // TODO: Collect inner objects. We need to modify parser...
+
+        // TODO: Lower the code in the object.
+
+        self.object_items.pop();
+        self.scope.pop();
     }
 
     fn enter_block(&mut self, yul_block: &YulBlock) {
@@ -164,8 +195,13 @@ impl Ctx {
         }
     }
 
+    fn leave_block(&mut self) {
+        self.scope.pop().unwrap();
+        self.funcs.pop().unwrap();
+    }
+
     fn make_sig(&mut self, func_def: &FunctionDefinition) -> Signature {
-        let name = self.scope.make_func_name(&func_def.name.name);
+        let name = self.scope.make_prefixed_name(&func_def.name.name);
         let args = vec![Type::I256; func_def.parameters.len()];
         let ret_ty = self.declare_ret_ty(func_def.returns.len());
         Signature::new(&name, Linkage::Private, &args, ret_ty)
@@ -190,9 +226,33 @@ impl Ctx {
         ret_ty
     }
 
-    fn leave_block(&mut self) {
-        self.scope.pop().unwrap();
-        self.funcs.pop().unwrap();
+    fn declare_global_var(&mut self, data: &Data) -> GlobalVariable {
+        let name = &data.name[1..data.name.len() - 1];
+        let name = self.scope.make_prefixed_name(name);
+        let (data, ty) = self.parse_data_value(data);
+
+        let gv_data = GlobalVariableData::constant(name, ty, Linkage::Private, data);
+        self.mb.make_global(gv_data)
+    }
+
+    fn parse_data_value(&self, data: &Data) -> (GvInitializer, Type) {
+        let data = &data.data;
+        if data.starts_with("hex") {
+            // The actual hex literal is surrounded by `"`, or `'`.
+            let u256 = U256::from_str_radix(&data[4..data.len() - 1], 16).unwrap();
+            let cv = GvInitializer::make_imm(I256::make_positive(u256));
+            (cv, Type::I256)
+        } else {
+            let value: Vec<_> = data
+                .bytes()
+                .map(|b| GvInitializer::Immediate(b.into()))
+                .collect();
+            let len = value.len();
+            let cv = GvInitializer::make_array(value);
+            let ty = self.mb.declare_array_type(Type::I8, len);
+
+            (cv, ty)
+        }
     }
 }
 
@@ -238,5 +298,23 @@ impl Literal {
         };
 
         todo!()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ObjectItem {
+    GlobalVariable(GlobalVariable),
+    ContractCode(FuncRef),
+}
+
+impl From<GlobalVariable> for ObjectItem {
+    fn from(value: GlobalVariable) -> Self {
+        Self::GlobalVariable(value)
+    }
+}
+
+impl From<FuncRef> for ObjectItem {
+    fn from(value: FuncRef) -> Self {
+        Self::ContractCode(value)
     }
 }

@@ -49,6 +49,8 @@ macro_rules! snap_test {
     glob: "*.yul",
 )]
 fn test(fixture: Fixture<&str>) {
+    compile(fixture.content()).unwrap();
+
     let module = compile(fixture.content()).unwrap();
 
     let mut module_writer = ModuleWriter::new(&module);
