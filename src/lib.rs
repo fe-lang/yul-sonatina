@@ -8,11 +8,14 @@ use sonatina_ir::{
     global_variable::GvInitializer,
     isa::evm::Evm,
     module::{FuncRef, ModuleCtx},
-    GlobalVariable, GlobalVariableData, Immediate, Linkage, Module, Signature, Type, I256, U256,
+    GlobalVariable, GlobalVariableData, Linkage, Module, Signature, Type, I256, U256,
 };
 use sonatina_triple::{Architecture, EvmVersion, OperatingSystem, TargetTriple, Vendor};
 use yultsur::{
-    yul::{self, Block as YulBlock, Data, FunctionDefinition, InnerRoot, Object, Statement},
+    yul::{
+        self, Block as YulBlock, Data, FunctionDefinition, Identifier, IdentifierID, InnerRoot,
+        Object, Statement,
+    },
     yul_parser::parse_root,
 };
 
@@ -67,7 +70,7 @@ impl Scope {
         if prefix.is_empty() {
             name.to_string()
         } else {
-            format!("{prefix}.{name}")
+            format!("{prefix}_{name}")
         }
     }
 
@@ -77,7 +80,7 @@ impl Scope {
                 let mut prefix = String::new();
                 for s in scopes {
                     if !prefix.is_empty() {
-                        prefix.push_str(".");
+                        prefix.push('_');
                     }
                     prefix.push_str(&s.prefix());
                 }
@@ -85,7 +88,7 @@ impl Scope {
             }
 
             Self::Block(bn) => {
-                format!("yul_block{bn}")
+                format!("block{bn}")
             }
 
             Self::Func(name) | Self::Object(name) => name.clone(),
@@ -138,50 +141,82 @@ impl Ctx {
         None
     }
 
+    fn lookup_item(&self, name: &str) -> Option<ObjectItem> {
+        for scope in &self.object_items {
+            dbg!(name);
+            dbg!(&scope);
+            if let Some(item) = scope.get(name) {
+                return Some(*item);
+            }
+        }
+        None
+    }
+
     fn compile_object(&mut self, obj: &Object) {
         self.scope.push(Scope::object(obj));
         self.object_items.push(HashMap::new());
 
         // Declare all data in this obejct as a global variable.
         for data in &obj.data {
-            let gv = self.declare_global_var(data);
-            self.object_items
-                .last_mut()
-                .unwrap()
-                .insert(data.name.clone(), gv.into());
+            self.declare_global_var(data);
         }
 
         // TODO: Collect inner objects. We need to modify parser...
 
-        // TODO: Lower the code in the object.
+        // Lower the code section.
+        // NOTE: Code section is just a normal function in sonatina.
+        //
+        // Make a dummy yul funciton for contract code.
+        let name = Identifier {
+            id: IdentifierID::UnresolvedReference,
+            name: "__init__".to_string(),
+            location: None,
+        };
+        let yul_func = FunctionDefinition {
+            name,
+            parameters: Vec::new(),
+            returns: Vec::new(),
+            body: obj.code.body.clone(),
+            location: obj.code.location.clone(),
+        };
+
+        let func_ref = self.declare_function(&yul_func);
+        self.object_items
+            .last_mut()
+            .unwrap()
+            .insert(obj.name.clone(), ObjectItem::ContractCode(func_ref));
+
+        // Transpile contract code.
+        let fb = self.mb.func_builder(func_ref);
+        FuncTranspiler::new(self, fb).build(&yul_func);
 
         self.object_items.pop();
         self.scope.pop();
     }
 
     fn enter_block(&mut self, yul_block: &YulBlock) {
-        let mut funcs_in_scope = HashMap::new();
         let mut func_defs: HashMap<FuncRef, &FunctionDefinition> = HashMap::new();
+        self.scope.push(Scope::Block(self.block_number));
+        self.funcs.push(HashMap::new());
 
         // Collect functions and blocks in this block.
         let mut blocks = Vec::new();
         for stmt in &yul_block.statements {
             match stmt {
                 Statement::FunctionDefinition(yul_func) => {
-                    let sig = self.make_sig(yul_func);
-                    let func_ref = self.mb.declare_function(sig);
+                    let func_ref = self.declare_function(yul_func);
+                    self.funcs
+                        .last_mut()
+                        .unwrap()
+                        .insert(yul_func.name.name.clone(), func_ref);
                     func_defs.insert(func_ref, yul_func);
-                    funcs_in_scope.insert(yul_func.name.name.clone(), func_ref);
                 }
                 Statement::Block(block) => blocks.push(block),
                 _ => {}
             }
         }
 
-        self.scope.push(Scope::Block(self.block_number));
-        self.funcs.push(funcs_in_scope);
         self.block_number += 1;
-
         // Transpile yul functions in this block.
         for (func_ref, yul_func) in func_defs {
             let fb = self.mb.func_builder(func_ref);
@@ -193,6 +228,11 @@ impl Ctx {
             self.enter_block(block);
             self.leave_block();
         }
+    }
+
+    fn declare_function(&mut self, yul_func: &FunctionDefinition) -> FuncRef {
+        let sig = self.make_sig(yul_func);
+        self.mb.declare_function(sig)
     }
 
     fn leave_block(&mut self) {
@@ -228,11 +268,16 @@ impl Ctx {
 
     fn declare_global_var(&mut self, data: &Data) -> GlobalVariable {
         let name = &data.name[1..data.name.len() - 1];
-        let name = self.scope.make_prefixed_name(name);
+        let prefixed_name = self.scope.make_prefixed_name(name);
         let (data, ty) = self.parse_data_value(data);
 
-        let gv_data = GlobalVariableData::constant(name, ty, Linkage::Private, data);
-        self.mb.make_global(gv_data)
+        let gv_data = GlobalVariableData::constant(prefixed_name, ty, Linkage::Private, data);
+        let gv = self.mb.make_global(gv_data);
+        self.object_items
+            .last_mut()
+            .unwrap()
+            .insert(name.to_string(), gv.into());
+        gv
     }
 
     fn parse_data_value(&self, data: &Data) -> (GvInitializer, Type) {

@@ -45,12 +45,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38da1eb6f7d8cdfa92f05acfae63c9a1d7a337e49ce7a2d0769c7fa03a2613a5"
 
 [[package]]
+name = "cranelift-bitset"
+version = "0.114.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "005884e3649c3e5ff2dc79e8a94b138f11569cc08a91244a292714d2a86e9156"
+
+[[package]]
 name = "cranelift-entity"
 version = "0.112.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70b85ed43567e13782cd1b25baf42a8167ee57169a60dfd3d7307c6ca3839da0"
 dependencies = [
- "cranelift-bitset",
+ "cranelift-bitset 0.112.3",
+]
+
+[[package]]
+name = "cranelift-entity"
+version = "0.114.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "305399fd781a2953ac78c1396f02ff53144f39c33eb7fc7789cf4e8936d13a96"
+dependencies = [
+ "cranelift-bitset 0.114.0",
 ]
 
 [[package]]
@@ -421,8 +436,9 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 [[package]]
 name = "sonatina-ir"
 version = "0.0.3-alpha"
+source = "git+https://github.com/Y-Nak/sonatina?branch=tweak-ir-writer#36b84034f7e22732d453cde8f54f85babf1e1979"
 dependencies = [
- "cranelift-entity",
+ "cranelift-entity 0.114.0",
  "dashmap",
  "dot2",
  "dyn-clone",
@@ -438,6 +454,7 @@ dependencies = [
 [[package]]
 name = "sonatina-macros"
 version = "0.0.3-alpha"
+source = "git+https://github.com/Y-Nak/sonatina?branch=tweak-ir-writer#36b84034f7e22732d453cde8f54f85babf1e1979"
 dependencies = [
  "proc-macro2",
  "quote 1.0.37",
@@ -447,6 +464,7 @@ dependencies = [
 [[package]]
 name = "sonatina-triple"
 version = "0.0.3-alpha"
+source = "git+https://github.com/Y-Nak/sonatina?branch=tweak-ir-writer#36b84034f7e22732d453cde8f54f85babf1e1979"
 dependencies = [
  "thiserror",
 ]
@@ -620,7 +638,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 name = "yul-sonatina"
 version = "0.1.0"
 dependencies = [
- "cranelift-entity",
+ "cranelift-entity 0.112.3",
  "dir-test",
  "insta",
  "sonatina-ir",

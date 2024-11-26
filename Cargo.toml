@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 yultsur = { git = "https://github.com/leonardoalt/yultsur", branch = "main" }
-sonatina-ir = { path = "../sonatina/crates/ir" }
-sonatina-triple = { path = "../sonatina/crates/triple" }
+sonatina-ir = { git = "https://github.com/Y-Nak/sonatina", branch = "tweak-ir-writer", package = "sonatina-ir" }
+sonatina-triple = { git = "https://github.com/Y-Nak/sonatina", branch = "tweak-ir-writer", package = "sonatina-triple" }
 cranelift-entity = "0.112"
 
 [dev-dependencies]

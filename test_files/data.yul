@@ -1,6 +1,9 @@
 object "Contract1" {
     code {
+        let d := dataoffset("CONSTANT")
+        let s := datasize("CONSTANT")
+        codecopy(0, d, s)
     }
 
-    data "Table2" hex"4123"
+    data "CONSTANT" hex"4123"
 }

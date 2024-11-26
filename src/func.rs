@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use sonatina_ir::{
     builder::FunctionBuilder,
     func_cursor::InstInserter,
-    inst::{arith::*, cmp::*, control_flow::*, data::*, evm::*, logic::*},
+    inst::{arith::*, cast::*, cmp::*, control_flow::*, data::*, evm::*, logic::*},
     BlockId, Inst, Type, ValueId, Variable, I256,
 };
 use yultsur::yul::{
@@ -11,7 +11,7 @@ use yultsur::yul::{
     Literal as YulLiteral, Statement,
 };
 
-use crate::{Ctx, Literal};
+use crate::{Ctx, Literal, ObjectItem};
 
 pub struct FuncTranspiler<'ctx> {
     ctx: &'ctx mut Ctx,
@@ -307,15 +307,72 @@ impl<'ctx> FuncTranspiler<'ctx> {
     }
 
     fn func_call(&mut self, yul_func_call: &FunctionCall) -> Option<ValueId> {
+        let callee_name = yul_func_call.function.name.as_str();
+        let m_ctx = self.builder.ctx();
+        let inst_set = self.builder.ctx().inst_set;
+
+        match callee_name {
+            "dataoffset" => {
+                let arg = &yul_func_call.arguments[0];
+                let Literal::String(symbol) = (match arg {
+                    Expression::Literal(yul_lit) => Literal::parse(yul_lit),
+                    _ => unreachable!(),
+                }) else {
+                    unreachable!()
+                };
+
+                let item = self.ctx.lookup_item(&symbol).unwrap();
+                let ptr = match item {
+                    ObjectItem::ContractCode(func_ref) => {
+                        let gfp = GetFunctionPtr::new_unchecked(inst_set, func_ref);
+                        self.builder.insert_inst(gfp, Type::I256.to_ptr(m_ctx))
+                    }
+
+                    ObjectItem::GlobalVariable(variable) => {
+                        self.builder.make_global_value(variable)
+                    }
+                };
+
+                let ptoi = PtrToInt::new_unchecked(inst_set, ptr, Type::I256);
+                return Some(self.builder.insert_inst(ptoi, Type::I256));
+            }
+
+            "datasize" => {
+                let arg = &yul_func_call.arguments[0];
+                let Literal::String(symbol) = (match arg {
+                    Expression::Literal(yul_lit) => Literal::parse(yul_lit),
+                    _ => unreachable!(),
+                }) else {
+                    unreachable!()
+                };
+                let item = self.ctx.lookup_item(&symbol).unwrap();
+
+                match item {
+                    ObjectItem::ContractCode(func_ref) => {
+                        let contract_size = EvmContractSize::new_unchecked(inst_set, func_ref);
+                        return Some(self.builder.insert_inst(contract_size, Type::I256));
+                    }
+
+                    ObjectItem::GlobalVariable(variable) => {
+                        let ty = variable.ty(self.builder.ctx());
+                        let size = m_ctx.type_layout.size_of(ty, m_ctx).unwrap();
+                        let value = self.builder.make_imm_value(I256::from_usize(size));
+                        return Some(value);
+                    }
+                }
+            }
+
+            // Fallback to normal instruction call handling.
+            _ => {}
+        };
+
         let args: Vec<_> = yul_func_call
             .arguments
             .iter()
             .map(|expr| self.expr(expr).unwrap())
             .collect();
 
-        let inst_set = self.builder.ctx().inst_set;
-
-        let (inst, has_ret): (Box<dyn Inst>, _) = match yul_func_call.function.name.as_str() {
+        let (inst, has_ret): (Box<dyn Inst>, _) = match callee_name {
             "stop" => (Box::new(EvmStop::new_unchecked(inst_set)), false),
 
             "add" => (
@@ -579,6 +636,12 @@ impl<'ctx> FuncTranspiler<'ctx> {
             "difficulty" => panic!("`difficulty` is no longer supported"),
             "prevrandao" => (Box::new(EvmPrevRandao::new_unchecked(inst_set)), true),
             "gaslimit" => (Box::new(EvmGasLimit::new_unchecked(inst_set)), true),
+            "datacopy" => (
+                Box::new(EvmCodeCopy::new_unchecked(
+                    inst_set, args[0], args[1], args[2],
+                )),
+                false,
+            ),
 
             f => {
                 let callee = self.ctx.lookup_func(f).unwrap();
