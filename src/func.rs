@@ -297,7 +297,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
     }
 
     fn lit(&mut self, yul_lit: &YulLiteral) -> ValueId {
-        let lit = Literal::parse(yul_lit).as_i256().unwrap();
+        let lit = Literal::parse(yul_lit).as_imm();
         self.builder.make_imm_value(lit)
     }
 

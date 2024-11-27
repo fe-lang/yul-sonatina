@@ -98,9 +98,7 @@ impl Scope {
     }
 
     fn object(obj: &Object) -> Self {
-        let name = &obj.name;
-        // We need to strip the double quotation.
-        let name = &name[1..name.len() - 1];
+        let name = strip_enclosing_quote(&obj.name);
         Self::Object(name.to_string())
     }
 }
@@ -162,7 +160,7 @@ impl Ctx {
         for inner_obj in &obj.objects {
             let fb = self.compile_object(inner_obj);
             self.object_items.last_mut().unwrap().insert(
-                inner_obj.name[1..inner_obj.name.len() - 1].to_string(),
+                strip_enclosing_quote(&inner_obj.name).to_string(),
                 ObjectItem::ContractCode(fb),
             );
         }
@@ -186,7 +184,7 @@ impl Ctx {
 
         let func_ref = self.declare_function(&yul_func);
         self.object_items.last_mut().unwrap().insert(
-            obj.name[1..obj.name.len() - 1].to_string(),
+            strip_enclosing_quote(&obj.name).to_string(),
             ObjectItem::ContractCode(func_ref),
         );
 
@@ -332,22 +330,25 @@ impl Literal {
             "false" => U256::zero(),
 
             lit => {
-                assert!(lit.starts_with("\""));
-                let last = lit.len();
-                return Self::String((lit[1..last - 1]).to_string());
+                return Self::String(strip_enclosing_quote(lit).to_string());
             }
         };
 
         Self::Number(I256::make_positive(u256))
     }
 
-    pub fn as_i256(&self) -> Option<I256> {
-        let _s = match self {
-            Self::Number(num) => return Some(*num),
+    pub fn as_imm(&self) -> I256 {
+        let s = match self {
+            Self::Number(num) => return *num,
             Self::String(s) => s,
         };
 
-        todo!()
+        let s = strip_enclosing_quote(s);
+        let mut bytes: Vec<u8> = s.bytes().collect();
+        let len = bytes.len();
+        bytes.resize(32, 0);
+        assert!(len <= 32);
+        I256::from_be_bytes(&bytes)
     }
 }
 
@@ -367,4 +368,9 @@ impl From<FuncRef> for ObjectItem {
     fn from(value: FuncRef) -> Self {
         Self::ContractCode(value)
     }
+}
+
+fn strip_enclosing_quote(s: &str) -> &str {
+    let len = s.len();
+    &s[1..len - 1]
 }
