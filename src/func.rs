@@ -50,12 +50,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
         }
 
         self.block(&yul_func.body, true, None);
-        let current_bb = self.builder.current_block().unwrap();
-        if !self.builder.is_sealed(current_bb) {
-            self.insert_return();
-            self.builder.seal_block();
-        }
-
+        self.builder.seal_all();
         self.builder.finish();
     }
 
@@ -333,8 +328,7 @@ impl<'ctx> FuncTranspiler<'ctx> {
                     }
                 };
 
-                let ptoi = PtrToInt::new_unchecked(inst_set, ptr, Type::I256);
-                return Some(self.builder.insert_inst(ptoi, Type::I256));
+                return Some(self.ptoi(ptr));
             }
 
             "datasize" => {
@@ -471,19 +465,20 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 true,
             ),
             "pop" => return None,
-            "mload" => (
-                Box::new(Mload::new_unchecked(inst_set, args[0], Type::I256)),
-                true,
-            ),
-            "mstore" => (
-                Box::new(Mstore::new_unchecked(
-                    inst_set,
-                    args[0],
-                    args[1],
-                    Type::I256,
-                )),
-                false,
-            ),
+            "mload" => {
+                let ptr = self.itop(args[0]);
+                (
+                    Box::new(Mload::new_unchecked(inst_set, ptr, Type::I256)),
+                    true,
+                )
+            }
+            "mstore" => {
+                let ptr = self.itop(args[0]);
+                (
+                    Box::new(Mstore::new_unchecked(inst_set, ptr, args[1], Type::I256)),
+                    false,
+                )
+            }
             "mstore8" => (
                 Box::new(EvmMstore8::new_unchecked(inst_set, args[0], args[1])),
                 false,
@@ -659,6 +654,18 @@ impl<'ctx> FuncTranspiler<'ctx> {
             self.builder.insert_inst_no_result_dyn(inst);
             None
         }
+    }
+
+    fn ptoi(&mut self, ptr: ValueId) -> ValueId {
+        let ptoi = PtrToInt::new_unchecked(self.builder.ctx().inst_set, ptr, Type::I256);
+        self.builder.insert_inst(ptoi, Type::I256)
+    }
+
+    fn itop(&mut self, ptr: ValueId) -> ValueId {
+        let m_ctx = self.builder.ctx();
+        let ptr_ty = Type::I256.to_ptr(m_ctx);
+        let ptoi = IntToPtr::new_unchecked(m_ctx.inst_set, ptr, ptr_ty);
+        self.builder.insert_inst(ptoi, ptr_ty)
     }
 }
 

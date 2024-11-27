@@ -70,7 +70,7 @@ impl Scope {
         if prefix.is_empty() {
             name.to_string()
         } else {
-            format!("{prefix}_{name}")
+            format!("{prefix}::{name}")
         }
     }
 
@@ -80,7 +80,7 @@ impl Scope {
                 let mut prefix = String::new();
                 for s in scopes {
                     if !prefix.is_empty() {
-                        prefix.push('_');
+                        prefix.push_str("::");
                     }
                     prefix.push_str(&s.prefix());
                 }
@@ -143,8 +143,6 @@ impl Ctx {
 
     fn lookup_item(&self, name: &str) -> Option<ObjectItem> {
         for scope in &self.object_items {
-            dbg!(name);
-            dbg!(&scope);
             if let Some(item) = scope.get(name) {
                 return Some(*item);
             }
@@ -152,7 +150,7 @@ impl Ctx {
         None
     }
 
-    fn compile_object(&mut self, obj: &Object) {
+    fn compile_object(&mut self, obj: &Object) -> FuncRef {
         self.scope.push(Scope::object(obj));
         self.object_items.push(HashMap::new());
 
@@ -161,7 +159,13 @@ impl Ctx {
             self.declare_global_var(data);
         }
 
-        // TODO: Collect inner objects. We need to modify parser...
+        for inner_obj in &obj.objects {
+            let fb = self.compile_object(inner_obj);
+            self.object_items.last_mut().unwrap().insert(
+                inner_obj.name[1..inner_obj.name.len() - 1].to_string(),
+                ObjectItem::ContractCode(fb),
+            );
+        }
 
         // Lower the code section.
         // NOTE: Code section is just a normal function in sonatina.
@@ -181,10 +185,10 @@ impl Ctx {
         };
 
         let func_ref = self.declare_function(&yul_func);
-        self.object_items
-            .last_mut()
-            .unwrap()
-            .insert(obj.name.clone(), ObjectItem::ContractCode(func_ref));
+        self.object_items.last_mut().unwrap().insert(
+            obj.name[1..obj.name.len() - 1].to_string(),
+            ObjectItem::ContractCode(func_ref),
+        );
 
         // Transpile contract code.
         let fb = self.mb.func_builder(func_ref);
@@ -192,6 +196,7 @@ impl Ctx {
 
         self.object_items.pop();
         self.scope.pop();
+        func_ref
     }
 
     fn enter_block(&mut self, yul_block: &YulBlock) {

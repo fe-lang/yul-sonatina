@@ -4,11 +4,11 @@ input_file: test_files/data.yul
 ---
 target = evm-ethereum-cancun
 
-global private const i256 $Contract1_CONSTANT = 16675
+global private const i256 $Contract1::CONSTANT = 16675
 
-func private %Contract1___init__() -> unit {
+func private %Contract1::__init__() -> unit {
     block0:
-        v1.i256 = ptr_to_int $Contract1_CONSTANT i256;
+        v1.i256 = ptr_to_int $Contract1::CONSTANT i256;
         evm_code_copy 0.i256 v1 32.i256;
         return;
 }
