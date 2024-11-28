@@ -4,13 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-yultsur = { path = "../../fe-lang/yultsur/" }
-# sonatina-ir = { git = "https://github.com/Y-Nak/sonatina", branch = "tweak-ir-writer", package = "sonatina-ir" }
-sonatina-ir = { path = "../sonatina/crates/ir" }
-# sonatina-triple = { git = "https://github.com/Y-Nak/sonatina", branch = "tweak-ir-writer", package = "sonatina-triple" }
-sonatina-triple = { path = "../sonatina/crates/triple" }
+yultsur = { git = "https://github.com/fe-lang/yultsur", branch = "parser" }
+sonatina-ir = { git = "https://github.com/Y-Nak/sonatina", branch = "refactor-ir-writer", package = "sonatina-ir" }
+sonatina-triple = { git = "https://github.com/Y-Nak/sonatina", branch = "refactor-ir-writer", package = "sonatina-triple" }
 cranelift-entity = "0.112"
+clap = { version = "4.5.21", features = ["derive"] }
 
 [dev-dependencies]
-dir-test = "0.3.0"
+dir-test = "0.4.0"
 insta = { version = "1.41" }
