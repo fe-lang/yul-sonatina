@@ -436,7 +436,6 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 [[package]]
 name = "sonatina-ir"
 version = "0.0.3-alpha"
-source = "git+https://github.com/Y-Nak/sonatina?branch=tweak-ir-writer#a8da965bcee31f64a7e8f8ac02c396e66990ad75"
 dependencies = [
  "cranelift-entity 0.114.0",
  "dashmap",
@@ -454,7 +453,6 @@ dependencies = [
 [[package]]
 name = "sonatina-macros"
 version = "0.0.3-alpha"
-source = "git+https://github.com/Y-Nak/sonatina?branch=tweak-ir-writer#a8da965bcee31f64a7e8f8ac02c396e66990ad75"
 dependencies = [
  "proc-macro2",
  "quote 1.0.37",
@@ -464,7 +462,6 @@ dependencies = [
 [[package]]
 name = "sonatina-triple"
 version = "0.0.3-alpha"
-source = "git+https://github.com/Y-Nak/sonatina?branch=tweak-ir-writer#a8da965bcee31f64a7e8f8ac02c396e66990ad75"
 dependencies = [
  "thiserror",
 ]

@@ -1,0 +1,353 @@
+---
+source: tests/transpile.rs
+input_file: test_files/erc20.yul
+---
+target = evm-ethereum-cancun
+
+func private %Token::runtime::__init__() -> unit {
+    block0:
+        v0.i256 = evm_call_value;
+        v1.i256 = is_zero v0;
+        call %Token::runtime::block0::require v1;
+        v2.i256 = call %Token::runtime::block0::selector;
+        br_table v2 block8 (1889567281.i256 block1) (404098525.i256 block2) (2835717307.i256 block3) (599290589.i256 block4) (157198259.i256 block5) (3714247998.i256 block6) (1086394137.i256 block7);
+
+    block1:
+        v11.i256 = call %Token::runtime::block0::decodeAsAddress 0.i256;
+        v12.i256 = call %Token::runtime::block0::balanceOf v11;
+        call %Token::runtime::block0::returnUint v12;
+        jump block9;
+
+    block2:
+        v13.i256 = call %Token::runtime::block0::totalSupply;
+        call %Token::runtime::block0::returnUint v13;
+        jump block9;
+
+    block3:
+        v14.i256 = call %Token::runtime::block0::decodeAsAddress 0.i256;
+        v16.i256 = call %Token::runtime::block0::decodeAsUint 1.i256;
+        call %Token::runtime::block0::transfer v14 v16;
+        call %Token::runtime::block0::returnTrue;
+        jump block9;
+
+    block4:
+        v17.i256 = call %Token::runtime::block0::decodeAsAddress 0.i256;
+        v18.i256 = call %Token::runtime::block0::decodeAsAddress 1.i256;
+        v20.i256 = call %Token::runtime::block0::decodeAsUint 2.i256;
+        call %Token::runtime::block0::transferFrom v17 v18 v20;
+        call %Token::runtime::block0::returnTrue;
+        jump block9;
+
+    block5:
+        v21.i256 = call %Token::runtime::block0::decodeAsAddress 0.i256;
+        v22.i256 = call %Token::runtime::block0::decodeAsUint 1.i256;
+        call %Token::runtime::block0::approve v21 v22;
+        call %Token::runtime::block0::returnTrue;
+        jump block9;
+
+    block6:
+        v23.i256 = call %Token::runtime::block0::decodeAsAddress 0.i256;
+        v24.i256 = call %Token::runtime::block0::decodeAsAddress 1.i256;
+        v25.i256 = call %Token::runtime::block0::allowance v23 v24;
+        call %Token::runtime::block0::returnUint v25;
+        jump block9;
+
+    block7:
+        v26.i256 = call %Token::runtime::block0::decodeAsAddress 0.i256;
+        v27.i256 = call %Token::runtime::block0::decodeAsUint 1.i256;
+        call %Token::runtime::block0::mint v26 v27;
+        call %Token::runtime::block0::returnTrue;
+        jump block9;
+
+    block8:
+        evm_revert 0.i256 0.i256;
+
+    block9:
+        return;
+}
+
+func private %Token::runtime::block0::mint(v0.i256, v1.i256) -> unit {
+    block0:
+        v2.i256 = call %Token::runtime::block0::calledByOwner;
+        call %Token::runtime::block0::require v2;
+        call %Token::runtime::block0::mintTokens v1;
+        call %Token::runtime::block0::addToBalance v0 v1;
+        call %Token::runtime::block0::emitTransfer 0.i256 v0 v1;
+        return;
+}
+
+func private %Token::runtime::block0::transfer(v0.i256, v1.i256) -> unit {
+    block0:
+        v2.i256 = evm_caller;
+        call %Token::runtime::block0::executeTransfer v2 v0 v1;
+        return;
+}
+
+func private %Token::runtime::block0::approve(v0.i256, v1.i256) -> unit {
+    block0:
+        call %Token::runtime::block0::revertIfZeroAddress v0;
+        v2.i256 = evm_caller;
+        call %Token::runtime::block0::setAllowance v2 v0 v1;
+        v3.i256 = evm_caller;
+        call %Token::runtime::block0::emitApproval v3 v0 v1;
+        return;
+}
+
+func private %Token::runtime::block0::transferFrom(v0.i256, v1.i256, v2.i256) -> unit {
+    block0:
+        v3.i256 = evm_caller;
+        call %Token::runtime::block0::decreaseAllowanceBy v0 v3 v2;
+        call %Token::runtime::block0::executeTransfer v0 v1 v2;
+        return;
+}
+
+func private %Token::runtime::block0::executeTransfer(v0.i256, v1.i256, v2.i256) -> unit {
+    block0:
+        call %Token::runtime::block0::revertIfZeroAddress v1;
+        call %Token::runtime::block0::deductFromBalance v0 v2;
+        call %Token::runtime::block0::addToBalance v1 v2;
+        call %Token::runtime::block0::emitTransfer v0 v1 v2;
+        return;
+}
+
+func private %Token::runtime::block0::selector() -> i256 {
+    block0:
+        v1.i256 = evm_call_data_load 0.i256;
+        v3.i256 = evm_udiv v1 26959946667150639794667015087019630673637144422540572481103610249216.i256;
+        return v3;
+}
+
+func private %Token::runtime::block0::decodeAsAddress(v0.i256) -> i256 {
+    block0:
+        v1.i256 = call %Token::runtime::block0::decodeAsUint v0;
+        v3.i256 = not 1461501637330902918203684832716283019655932542975.i256;
+        v4.i256 = and v1 v3;
+        v5.i256 = is_zero v4;
+        v6.i256 = is_zero v5;
+        br v6 block1 block2;
+
+    block1:
+        evm_revert 0.i256 0.i256;
+
+    block2:
+        return v1;
+}
+
+func private %Token::runtime::block0::decodeAsUint(v0.i256) -> i256 {
+    block0:
+        v3.i256 = mul v0 32.i256;
+        v4.i256 = add 4.i256 v3;
+        v5.i256 = evm_call_data_size;
+        v6.i256 = add v4 32.i256;
+        v7.i256 = lt v5 v6;
+        br v7 block1 block2;
+
+    block1:
+        evm_revert 0.i256 0.i256;
+
+    block2:
+        v10.i256 = evm_call_data_load v9;
+        return v10;
+}
+
+func private %Token::runtime::block0::returnUint(v0.i256) -> unit {
+    block0:
+        v2.*i256 = int_to_ptr 0.i256 *i256;
+        mstore v2 v0 i256;
+        evm_return 0.i256 32.i256;
+}
+
+func private %Token::runtime::block0::returnTrue() -> unit {
+    block0:
+        call %Token::runtime::block0::returnUint 1.i256;
+        return;
+}
+
+func private %Token::runtime::block0::emitTransfer(v0.i256, v1.i256, v2.i256) -> unit {
+    block0:
+        call %Token::runtime::block0::emitEvent 100389287136786176327247604509743168900146139575972864366142685224231313322991.i256 v0 v1 v2;
+        return;
+}
+
+func private %Token::runtime::block0::emitApproval(v0.i256, v1.i256, v2.i256) -> unit {
+    block0:
+        call %Token::runtime::block0::emitEvent 63486140976153616755203102783360879283472101686154884697241723088393386309925.i256 v0 v1 v2;
+        return;
+}
+
+func private %Token::runtime::block0::emitEvent(v0.i256, v1.i256, v2.i256, v3.i256) -> unit {
+    block0:
+        v5.*i256 = int_to_ptr 0.i256 *i256;
+        mstore v5 v3 i256;
+        evm_log3 0.i256 32.i256 v0 v1 v2;
+        return;
+}
+
+func private %Token::runtime::block0::ownerPos() -> i256 {
+    block0:
+        return 0.i256;
+}
+
+func private %Token::runtime::block0::totalSupplyPos() -> i256 {
+    block0:
+        return 1.i256;
+}
+
+func private %Token::runtime::block0::accountToStorageOffset(v0.i256) -> i256 {
+    block0:
+        v2.i256 = add 4096.i256 v0;
+        return v2;
+}
+
+func private %Token::runtime::block0::allowanceStorageOffset(v0.i256, v1.i256) -> i256 {
+    block0:
+        v2.i256 = call %Token::runtime::block0::accountToStorageOffset v0;
+        v4.*i256 = int_to_ptr 0.i256 *i256;
+        mstore v4 v2 i256;
+        v6.*i256 = int_to_ptr 32.i256 *i256;
+        mstore v6 v1 i256;
+        v8.i256 = evm_keccak256 0.i256 64.i256;
+        return v8;
+}
+
+func private %Token::runtime::block0::owner() -> i256 {
+    block0:
+        v0.i256 = call %Token::runtime::block0::ownerPos;
+        v1.i256 = evm_sload v0;
+        return v1;
+}
+
+func private %Token::runtime::block0::totalSupply() -> i256 {
+    block0:
+        v0.i256 = call %Token::runtime::block0::totalSupplyPos;
+        v1.i256 = evm_sload v0;
+        return v1;
+}
+
+func private %Token::runtime::block0::mintTokens(v0.i256) -> unit {
+    block0:
+        v1.i256 = call %Token::runtime::block0::totalSupplyPos;
+        v2.i256 = call %Token::runtime::block0::totalSupply;
+        v3.i256 = call %Token::runtime::block0::safeAdd v2 v0;
+        evm_sstore v1 v3;
+        return;
+}
+
+func private %Token::runtime::block0::balanceOf(v0.i256) -> i256 {
+    block0:
+        v1.i256 = call %Token::runtime::block0::accountToStorageOffset v0;
+        v2.i256 = evm_sload v1;
+        return v2;
+}
+
+func private %Token::runtime::block0::addToBalance(v0.i256, v1.i256) -> unit {
+    block0:
+        v2.i256 = call %Token::runtime::block0::accountToStorageOffset v0;
+        v3.i256 = evm_sload v2;
+        v4.i256 = call %Token::runtime::block0::safeAdd v3 v1;
+        evm_sstore v2 v4;
+        return;
+}
+
+func private %Token::runtime::block0::deductFromBalance(v0.i256, v1.i256) -> unit {
+    block0:
+        v2.i256 = call %Token::runtime::block0::accountToStorageOffset v0;
+        v3.i256 = evm_sload v2;
+        v4.i256 = call %Token::runtime::block0::lte v1 v3;
+        call %Token::runtime::block0::require v4;
+        v5.i256 = sub v3 v1;
+        evm_sstore v2 v5;
+        return;
+}
+
+func private %Token::runtime::block0::allowance(v0.i256, v1.i256) -> i256 {
+    block0:
+        v2.i256 = call %Token::runtime::block0::allowanceStorageOffset v0 v1;
+        v3.i256 = evm_sload v2;
+        return v3;
+}
+
+func private %Token::runtime::block0::setAllowance(v0.i256, v1.i256, v2.i256) -> unit {
+    block0:
+        v3.i256 = call %Token::runtime::block0::allowanceStorageOffset v0 v1;
+        evm_sstore v3 v2;
+        return;
+}
+
+func private %Token::runtime::block0::decreaseAllowanceBy(v0.i256, v1.i256, v2.i256) -> unit {
+    block0:
+        v3.i256 = call %Token::runtime::block0::allowanceStorageOffset v0 v1;
+        v4.i256 = evm_sload v3;
+        v5.i256 = call %Token::runtime::block0::lte v2 v4;
+        call %Token::runtime::block0::require v5;
+        v6.i256 = sub v4 v2;
+        evm_sstore v3 v6;
+        return;
+}
+
+func private %Token::runtime::block0::lte(v0.i256, v1.i256) -> i256 {
+    block0:
+        v2.i256 = gt v0 v1;
+        v3.i256 = is_zero v2;
+        return v3;
+}
+
+func private %Token::runtime::block0::gte(v0.i256, v1.i256) -> i256 {
+    block0:
+        v2.i256 = lt v0 v1;
+        v3.i256 = is_zero v2;
+        return v3;
+}
+
+func private %Token::runtime::block0::safeAdd(v0.i256, v1.i256) -> i256 {
+    block0:
+        v2.i256 = add v0 v1;
+        v3.i256 = lt v2 v0;
+        v4.i256 = lt v2 v1;
+        v5.i256 = or v3 v4;
+        br v5 block1 block2;
+
+    block1:
+        evm_revert 0.i256 0.i256;
+
+    block2:
+        return v2;
+}
+
+func private %Token::runtime::block0::calledByOwner() -> i256 {
+    block0:
+        v0.i256 = call %Token::runtime::block0::owner;
+        v1.i256 = evm_caller;
+        v2.i256 = eq v0 v1;
+        return v2;
+}
+
+func private %Token::runtime::block0::revertIfZeroAddress(v0.i256) -> unit {
+    block0:
+        call %Token::runtime::block0::require v0;
+        return;
+}
+
+func private %Token::runtime::block0::require(v0.i256) -> unit {
+    block0:
+        v1.i256 = is_zero v0;
+        br v1 block1 block2;
+
+    block1:
+        evm_revert 0.i256 0.i256;
+
+    block2:
+        return;
+}
+
+func private %Token::__init__() -> unit {
+    block0:
+        v1.i256 = evm_caller;
+        evm_sstore 0.i256 v1;
+        v2.*i256 = get_function_ptr %Token::runtime::__init__;
+        v3.i256 = ptr_to_int v2 i256;
+        v4.i256 = evm_contract_size %Token::runtime::__init__;
+        evm_code_copy 0.i256 v3 v4;
+        v5.i256 = evm_contract_size %Token::runtime::__init__;
+        evm_return 0.i256 v5;
+}
