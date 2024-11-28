@@ -320,7 +320,8 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 let ptr = match item {
                     ObjectItem::ContractCode(func_ref) => {
                         let gfp = GetFunctionPtr::new_unchecked(inst_set, func_ref);
-                        self.builder.insert_inst(gfp, Type::I256.to_ptr(m_ctx))
+                        self.builder
+                            .insert_inst(gfp, func_ref.as_ptr_ty(self.builder.ctx()))
                     }
 
                     ObjectItem::GlobalVariable(variable) => {

@@ -38,7 +38,7 @@ func private %Contract1::__init__() -> unit {
     block0:
         v0.i256 = evm_contract_size %Contract1::Contract2::__init__;
         v1.i256 = call %Contract1::block4::allocate v0;
-        v2.*i256 = get_function_ptr %Contract1::Contract2::__init__;
+        v2.*() -> unit = get_function_ptr %Contract1::Contract2::__init__;
         v3.i256 = ptr_to_int v2 i256;
         evm_code_copy v1 v3 v0;
         v4.i256 = add v1 v0;
@@ -48,7 +48,7 @@ func private %Contract1::__init__() -> unit {
         v10.i256 = evm_create 0.i256 v1 v9;
         v11.i256 = evm_contract_size %Contract1::Contract1_deployed::__init__;
         v12.i256 = call %Contract1::block4::allocate v11;
-        v13.*i256 = get_function_ptr %Contract1::Contract1_deployed::__init__;
+        v13.*() -> unit = get_function_ptr %Contract1::Contract1_deployed::__init__;
         v14.i256 = ptr_to_int v13 i256;
         evm_code_copy v12 v14 v11;
         evm_return v12 v11;

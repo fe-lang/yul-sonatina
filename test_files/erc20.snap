@@ -344,7 +344,7 @@ func private %Token::__init__() -> unit {
     block0:
         v1.i256 = evm_caller;
         evm_sstore 0.i256 v1;
-        v2.*i256 = get_function_ptr %Token::runtime::__init__;
+        v2.*() -> unit = get_function_ptr %Token::runtime::__init__;
         v3.i256 = ptr_to_int v2 i256;
         v4.i256 = evm_contract_size %Token::runtime::__init__;
         evm_code_copy 0.i256 v3 v4;
