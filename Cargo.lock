@@ -135,24 +135,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift-bitset"
-version = "0.112.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38da1eb6f7d8cdfa92f05acfae63c9a1d7a337e49ce7a2d0769c7fa03a2613a5"
-
-[[package]]
-name = "cranelift-bitset"
 version = "0.114.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "005884e3649c3e5ff2dc79e8a94b138f11569cc08a91244a292714d2a86e9156"
-
-[[package]]
-name = "cranelift-entity"
-version = "0.112.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70b85ed43567e13782cd1b25baf42a8167ee57169a60dfd3d7307c6ca3839da0"
-dependencies = [
- "cranelift-bitset 0.112.3",
-]
 
 [[package]]
 name = "cranelift-entity"
@@ -160,7 +145,7 @@ version = "0.114.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "305399fd781a2953ac78c1396f02ff53144f39c33eb7fc7789cf4e8936d13a96"
 dependencies = [
- "cranelift-bitset 0.114.0",
+ "cranelift-bitset",
 ]
 
 [[package]]
@@ -545,7 +530,7 @@ name = "sonatina-ir"
 version = "0.0.3-alpha"
 source = "git+https://github.com/Y-Nak/sonatina?branch=refactor-ir-writer#b737cb687c130ff9a7eddc0f94399013bb2117a1"
 dependencies = [
- "cranelift-entity 0.114.0",
+ "cranelift-entity",
  "dashmap",
  "dot2",
  "dyn-clone",
@@ -756,7 +741,7 @@ name = "yul-sonatina"
 version = "0.1.0"
 dependencies = [
  "clap",
- "cranelift-entity 0.112.3",
+ "cranelift-entity",
  "dir-test",
  "insta",
  "sonatina-ir",
