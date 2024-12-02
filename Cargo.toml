@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 yultsur = { git = "https://github.com/fe-lang/yultsur", branch = "parser" }
-sonatina-ir = { git = "https://github.com/Y-Nak/sonatina", branch = "refactor-ir-writer", package = "sonatina-ir" }
-sonatina-triple = { git = "https://github.com/Y-Nak/sonatina", branch = "refactor-ir-writer", package = "sonatina-triple" }
-cranelift-entity = "0.112"
+sonatina-ir = { git = "https://github.com/fe-lang/sonatina", branch = "main", package = "sonatina-ir" }
+sonatina-triple = { git = "https://github.com/fe-lang/sonatina", branch = "main", package = "sonatina-triple" }
 clap = { version = "4.5.21", features = ["derive"] }
 
 [dev-dependencies]

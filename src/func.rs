@@ -497,12 +497,12 @@ impl<'ctx> FuncTranspiler<'ctx> {
             "caller" => (Box::new(EvmCaller::new_unchecked(inst_set)), true),
             "callvalue" => (Box::new(EvmCallValue::new_unchecked(inst_set)), true),
             "calldataload" => (
-                Box::new(EvmCallDataLoad::new_unchecked(inst_set, args[0])),
+                Box::new(EvmCalldataLoad::new_unchecked(inst_set, args[0])),
                 true,
             ),
-            "calldatasize" => (Box::new(EvmCallDataSize::new_unchecked(inst_set)), true),
+            "calldatasize" => (Box::new(EvmCalldataSize::new_unchecked(inst_set)), true),
             "calldatacopy" => (
-                Box::new(EvmCallDataCopy::new_unchecked(
+                Box::new(EvmCalldataCopy::new_unchecked(
                     inst_set, args[0], args[1], args[2],
                 )),
                 false,

@@ -112,7 +112,7 @@ func private %Token::runtime::block0::executeTransfer(v0.i256, v1.i256, v2.i256)
 
 func private %Token::runtime::block0::selector() -> i256 {
     block0:
-        v1.i256 = evm_call_data_load 0.i256;
+        v1.i256 = evm_calldata_load 0.i256;
         v3.i256 = evm_udiv v1 26959946667150639794667015087019630673637144422540572481103610249216.i256;
         return v3;
 }
@@ -137,7 +137,7 @@ func private %Token::runtime::block0::decodeAsUint(v0.i256) -> i256 {
     block0:
         v3.i256 = mul v0 32.i256;
         v4.i256 = add 4.i256 v3;
-        v5.i256 = evm_call_data_size;
+        v5.i256 = evm_calldata_size;
         v6.i256 = add v4 32.i256;
         v7.i256 = lt v5 v6;
         br v7 block1 block2;
@@ -146,7 +146,7 @@ func private %Token::runtime::block0::decodeAsUint(v0.i256) -> i256 {
         evm_revert 0.i256 0.i256;
 
     block2:
-        v10.i256 = evm_call_data_load v9;
+        v10.i256 = evm_calldata_load v4;
         return v10;
 }
 
