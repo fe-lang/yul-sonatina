@@ -10,5 +10,5 @@ sonatina-triple = { git = "https://github.com/fe-lang/sonatina", branch = "main"
 clap = { version = "4.5", features = ["derive"] }
 
 [dev-dependencies]
-dir-test = "0.4.0"
+dir-test = "0.4.1"
 insta = { version = "1.41" }
