@@ -615,7 +615,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 [[package]]
 name = "sonatina-ir"
 version = "0.0.3-alpha"
-source = "git+https://github.com/fe-lang/sonatina?branch=main#6869ddc23f53da3187d469a680a825670d08949b"
+source = "git+https://github.com/fe-lang/sonatina?branch=main#52551c861e8b8828004ecd833911dc77a6bc2d2c"
 dependencies = [
  "cranelift-entity",
  "dashmap",
@@ -633,7 +633,7 @@ dependencies = [
 [[package]]
 name = "sonatina-macros"
 version = "0.0.3-alpha"
-source = "git+https://github.com/fe-lang/sonatina?branch=main#6869ddc23f53da3187d469a680a825670d08949b"
+source = "git+https://github.com/fe-lang/sonatina?branch=main#52551c861e8b8828004ecd833911dc77a6bc2d2c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -643,7 +643,7 @@ dependencies = [
 [[package]]
 name = "sonatina-triple"
 version = "0.0.3-alpha"
-source = "git+https://github.com/fe-lang/sonatina?branch=main#6869ddc23f53da3187d469a680a825670d08949b"
+source = "git+https://github.com/fe-lang/sonatina?branch=main#52551c861e8b8828004ecd833911dc77a6bc2d2c"
 dependencies = [
  "thiserror",
 ]
