@@ -8,7 +8,7 @@ use sonatina_ir::{
     global_variable::GvInitializer,
     isa::evm::Evm,
     module::{FuncRef, ModuleCtx},
-    GlobalVariable, GlobalVariableData, Linkage, Module, Signature, Type, I256, U256,
+    GlobalVariableData, GlobalVariableRef, Linkage, Module, Signature, Type, I256, U256,
 };
 use sonatina_triple::{Architecture, EvmVersion, OperatingSystem, TargetTriple, Vendor};
 use yultsur::{
@@ -182,7 +182,7 @@ impl Ctx {
             location: obj.code.location.clone(),
         };
 
-        let func_ref = self.declare_function(&yul_func);
+        let func_ref = self.declare_function(&yul_func, Linkage::Public);
         self.object_items.last_mut().unwrap().insert(
             strip_enclosing_quote(&obj.name).to_string(),
             ObjectItem::ContractCode(func_ref),
@@ -207,7 +207,7 @@ impl Ctx {
         for stmt in &yul_block.statements {
             match stmt {
                 Statement::FunctionDefinition(yul_func) => {
-                    let func_ref = self.declare_function(yul_func);
+                    let func_ref = self.declare_function(yul_func, Linkage::Private);
                     self.funcs
                         .last_mut()
                         .unwrap()
@@ -233,21 +233,17 @@ impl Ctx {
         }
     }
 
-    fn declare_function(&mut self, yul_func: &FunctionDefinition) -> FuncRef {
-        let sig = self.make_sig(yul_func);
+    fn declare_function(&mut self, yul_func: &FunctionDefinition, linkage: Linkage) -> FuncRef {
+        let name = self.scope.make_prefixed_name(&yul_func.name.name);
+        let args = vec![Type::I256; yul_func.parameters.len()];
+        let ret_ty = self.declare_ret_ty(yul_func.returns.len());
+        let sig = Signature::new(&name, linkage, &args, ret_ty);
         self.mb.declare_function(sig)
     }
 
     fn leave_block(&mut self) {
         self.scope.pop().unwrap();
         self.funcs.pop().unwrap();
-    }
-
-    fn make_sig(&mut self, func_def: &FunctionDefinition) -> Signature {
-        let name = self.scope.make_prefixed_name(&func_def.name.name);
-        let args = vec![Type::I256; func_def.parameters.len()];
-        let ret_ty = self.declare_ret_ty(func_def.returns.len());
-        Signature::new(&name, Linkage::Private, &args, ret_ty)
     }
 
     fn declare_ret_ty(&mut self, n_ret: usize) -> Type {
@@ -269,13 +265,13 @@ impl Ctx {
         ret_ty
     }
 
-    fn declare_global_var(&mut self, data: &Data) -> GlobalVariable {
+    fn declare_global_var(&mut self, data: &Data) -> GlobalVariableRef {
         let name = &data.name[1..data.name.len() - 1];
         let prefixed_name = self.scope.make_prefixed_name(name);
         let (data, ty) = self.parse_data_value(data);
 
         let gv_data = GlobalVariableData::constant(prefixed_name, ty, Linkage::Private, data);
-        let gv = self.mb.make_global(gv_data);
+        let gv = self.mb.declare_gv(gv_data);
         self.object_items
             .last_mut()
             .unwrap()
@@ -354,12 +350,12 @@ impl Literal {
 
 #[derive(Debug, Clone, Copy)]
 enum ObjectItem {
-    GlobalVariable(GlobalVariable),
+    GlobalVariable(GlobalVariableRef),
     ContractCode(FuncRef),
 }
 
-impl From<GlobalVariable> for ObjectItem {
-    fn from(value: GlobalVariable) -> Self {
+impl From<GlobalVariableRef> for ObjectItem {
+    fn from(value: GlobalVariableRef) -> Self {
         Self::GlobalVariable(value)
     }
 }

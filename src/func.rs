@@ -266,7 +266,12 @@ impl<'ctx> FuncTranspiler<'ctx> {
                 Some(self.builder.use_var(var))
             }
             _ => {
-                let ret_ty = self.builder.func_sig().ret_ty();
+                let func_ref = self.builder.func_ref;
+                let ret_ty = self
+                    .builder
+                    .module_builder
+                    .ctx
+                    .func_sig(func_ref, |sig| sig.ret_ty());
                 let mut ret_val = self.builder.make_undef_value(ret_ty);
                 for (i, yul_var) in self.ret_vars.iter().enumerate() {
                     let var = self.func_ctx.lookup_var(yul_var);

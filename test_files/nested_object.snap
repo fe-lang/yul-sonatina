@@ -4,9 +4,9 @@ input_file: test_files/nested_object.yul
 ---
 target = evm-ethereum-cancun
 
-global private const i256 $Contract1::Table2 = 16675
+global private const i256 $Contract1::Table2 = 16675;
 
-func private %Contract1::Contract1_deployed::__init__() -> unit {
+func public %Contract1::Contract1_deployed::__init__() {
     block0:
         evm_return 0.i256 32.i256;
 }
@@ -29,12 +29,12 @@ func private %Contract1::Contract1_deployed::block0::allocate(v0.i256) -> i256 {
         return v6;
 }
 
-func private %Contract1::Contract2::__init__() -> unit {
+func public %Contract1::Contract2::__init__() {
     block0:
         return;
 }
 
-func private %Contract1::__init__() -> unit {
+func public %Contract1::__init__() {
     block0:
         v0.i256 = evm_contract_size %Contract1::Contract2::__init__;
         v1.i256 = call %Contract1::block4::allocate v0;
