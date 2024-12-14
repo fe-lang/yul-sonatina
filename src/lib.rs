@@ -8,7 +8,7 @@ use sonatina_ir::{
     global_variable::GvInitializer,
     isa::evm::Evm,
     module::{FuncRef, ModuleCtx},
-    GlobalVariable, GlobalVariableData, Linkage, Module, Signature, Type, I256, U256,
+    GlobalVariableData, GlobalVariableRef, Linkage, Module, Signature, Type, I256, U256,
 };
 use sonatina_triple::{Architecture, EvmVersion, OperatingSystem, TargetTriple, Vendor};
 use yultsur::{
@@ -269,13 +269,13 @@ impl Ctx {
         ret_ty
     }
 
-    fn declare_global_var(&mut self, data: &Data) -> GlobalVariable {
+    fn declare_global_var(&mut self, data: &Data) -> GlobalVariableRef {
         let name = &data.name[1..data.name.len() - 1];
         let prefixed_name = self.scope.make_prefixed_name(name);
         let (data, ty) = self.parse_data_value(data);
 
         let gv_data = GlobalVariableData::constant(prefixed_name, ty, Linkage::Private, data);
-        let gv = self.mb.make_global(gv_data);
+        let gv = self.mb.declare_gv(gv_data);
         self.object_items
             .last_mut()
             .unwrap()
@@ -354,12 +354,12 @@ impl Literal {
 
 #[derive(Debug, Clone, Copy)]
 enum ObjectItem {
-    GlobalVariable(GlobalVariable),
+    GlobalVariable(GlobalVariableRef),
     ContractCode(FuncRef),
 }
 
-impl From<GlobalVariable> for ObjectItem {
-    fn from(value: GlobalVariable) -> Self {
+impl From<GlobalVariableRef> for ObjectItem {
+    fn from(value: GlobalVariableRef) -> Self {
         Self::GlobalVariable(value)
     }
 }
