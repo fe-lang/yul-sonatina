@@ -153,15 +153,15 @@ dependencies = [
 
 [[package]]
 name = "cranelift-bitset"
-version = "0.117.2"
+version = "0.118.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "573c641174c40ef31021ae4a5a3ad78974e280633502d0dfc6e362385e0c100f"
+checksum = "b265bed7c51e1921fdae6419791d31af77d33662ee56d7b0fa0704dc8d231cab"
 
 [[package]]
 name = "cranelift-entity"
-version = "0.117.2"
+version = "0.118.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb0fd6d4aae680275fcbceb08683416b744e65c8b607352043d3f0951d72b3b2"
+checksum = "0c2c67d95507c51b4a1ff3f3555fe4bfec36b9e13c1b684ccc602736f5d5f4a2"
 dependencies = [
  "cranelift-bitset",
 ]
@@ -636,7 +636,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 [[package]]
 name = "sonatina-ir"
 version = "0.0.3-alpha"
-source = "git+https://github.com/fe-lang/sonatina?branch=main#03710756bf44f00c307d07d9ce971b65f80e8397"
+source = "git+https://github.com/fe-lang/sonatina?branch=main#5160413940f2dbc5b238e531ac7ef276c8fb94d3"
 dependencies = [
  "cranelift-entity",
  "dashmap",
@@ -654,7 +654,7 @@ dependencies = [
 [[package]]
 name = "sonatina-macros"
 version = "0.0.3-alpha"
-source = "git+https://github.com/fe-lang/sonatina?branch=main#03710756bf44f00c307d07d9ce971b65f80e8397"
+source = "git+https://github.com/fe-lang/sonatina?branch=main#5160413940f2dbc5b238e531ac7ef276c8fb94d3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -664,7 +664,7 @@ dependencies = [
 [[package]]
 name = "sonatina-triple"
 version = "0.0.3-alpha"
-source = "git+https://github.com/fe-lang/sonatina?branch=main#03710756bf44f00c307d07d9ce971b65f80e8397"
+source = "git+https://github.com/fe-lang/sonatina?branch=main#5160413940f2dbc5b238e531ac7ef276c8fb94d3"
 dependencies = [
  "thiserror 1.0.69",
 ]
